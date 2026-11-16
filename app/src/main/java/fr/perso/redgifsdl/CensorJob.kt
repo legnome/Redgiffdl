@@ -23,10 +23,13 @@ import java.util.UUID
 object CensorJob {
 
     /**
-     * Réglages de legnome, sauf la taille des rectangles : 65 % de la largeur et de la hauteur de la zone
-     * détectée (legnome : 130 %), toujours centrés : 1 + 2 * padding = 0.65.
+     * Réglages de legnome, sauf la taille des rectangles : 70 % de la largeur et de la hauteur de la zone
+     * détectée (legnome : 130 %), toujours centrés : 1 + 2 * padding = 0.7.
      */
-    val OPTIONS = Nudity.Options(padding = -0.175)
+    val OPTIONS = Nudity.Options(padding = -0.15)
+
+    /** Après sa dernière détection, un carré reste affiché ce temps-là en plus (évite les disparitions brèves). */
+    const val LINGER_SECONDS = 0.15
 
     @Volatile
     private var model: ByteArray? = null
@@ -79,7 +82,10 @@ object CensorJob {
         }
         val tmp = File(context.cacheDir, "censure-${UUID.randomUUID()}.mp4")
         try {
-            vc.censor(file, zones, tmp, opts.hold ?: zones.step) { p ->
+            // Avant la détection : comme legnome (step images) ; après : step images + 0,15 s
+            val before = opts.hold ?: zones.step
+            val after = before + Math.ceil(LINGER_SECONDS * zones.fps).toInt()
+            vc.censor(file, zones, tmp, before, after) { p ->
                 listener.onStatus("Censure de ${file.name}\nCréation de la copie… ${pct(p)}")
                 listener.onProgress(0.5f + p * 0.5f)
             }

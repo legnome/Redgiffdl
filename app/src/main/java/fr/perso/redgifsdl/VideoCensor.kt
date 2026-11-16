@@ -76,7 +76,8 @@ class VideoCensor(private val detector: NudeDetector) {
     }
 
     /** Étape 2 : copie H.264 avec carrés noirs + son d'origine. */
-    fun censor(input: File, zones: Nudity.Zones, output: File, hold: Int, onProgress: (Float) -> Unit) {
+    /** @param before / [after] : nombre d'images avant / après chaque détection où la zone est appliquée. */
+    fun censor(input: File, zones: Nudity.Zones, output: File, before: Int, after: Int, onProgress: (Float) -> Unit) {
         val vi = probe(input)
         if (vi.width != zones.width || vi.height != zones.height) {
             throw IOException("Les zones ne correspondent pas à cette vidéo (dimensions différentes)")
@@ -104,7 +105,7 @@ class VideoCensor(private val detector: NudeDetector) {
                 decode(input, gl, {}) { index, ptsUs ->
                     GLES20.glViewport(0, 0, encW, encH)
                     gl.drawFrame()
-                    val boxes = Nudity.activeBoxes(index, zones.frames, zones.step, hold)
+                    val boxes = Nudity.activeBoxes(index, zones.frames, zones.step, before, after)
                     if (boxes.isNotEmpty()) {
                         GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
                         GLES20.glClearColor(0f, 0f, 0f, 1f)

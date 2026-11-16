@@ -207,11 +207,18 @@ object Nudity {
      * legnome active_boxes : zones de toutes les images analysées à moins de [hold] images de [index].
      * Couvre les images non analysées et évite le "clignotement" de la censure.
      */
-    fun <T> activeBoxes(index: Int, byFrame: Map<Int, List<T>>, step: Int, hold: Int): List<T> {
-        val first = -Math.floorDiv(-(index - hold), step) * step // multiple de step >= index - hold
+    fun <T> activeBoxes(index: Int, byFrame: Map<Int, List<T>>, step: Int, hold: Int): List<T> =
+        activeBoxes(index, byFrame, step, hold, hold)
+
+    /**
+     * Variante asymétrique : une zone détectée sur l'image j est appliquée de j - [before] à j + [after].
+     * ([after] plus grand = le carré reste affiché un peu après la dernière détection.)
+     */
+    fun <T> activeBoxes(index: Int, byFrame: Map<Int, List<T>>, step: Int, before: Int, after: Int): List<T> {
+        val first = -Math.floorDiv(-(index - after), step) * step // multiple de step >= index - after
         val result = ArrayList<T>()
         var j = max(0, first)
-        while (j <= index + hold) {
+        while (j <= index + before) {
             byFrame[j]?.let { result += it }
             j += step
         }
