@@ -18,6 +18,21 @@
         android:scaleType="fitCenter"
         android:visibility="gone" />
 
+    <!-- Volume de lecture (boutons de volume, par pas de 1 %) -->
+    <TextView
+        android:id="@+id/volumeLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="#B3000000"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:visibility="gone" />
+
     <!-- Barre d'actions : apparaît au toucher, avec les contrôles de lecture -->
     <LinearLayout
         android:id="@+id/topBar"

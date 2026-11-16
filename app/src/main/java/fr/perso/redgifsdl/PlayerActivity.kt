@@ -1,10 +1,14 @@
 package fr.perso.redgifsdl
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.BitmapFactory
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.view.GestureDetector
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -32,6 +36,11 @@ class PlayerActivity : Activity() {
     private var resumePosition = 0
     private lateinit var topBar: View
     private lateinit var fileName: TextView
+    private lateinit var volumeLabel: TextView
+    private var player: MediaPlayer? = null
+    /** Volume de lecture propre à l'appli, 0..100 (%), réglé par pas de 1 avec les boutons de volume. */
+    private var volume = 100
+    private val hideVolume = Runnable { volumeLabel.visibility = View.GONE }
     private val hideBar = Runnable { topBar.visibility = View.GONE }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +53,9 @@ class PlayerActivity : Activity() {
         imageView = findViewById(R.id.image)
         topBar = findViewById(R.id.topBar)
         fileName = findViewById(R.id.fileName)
+        volumeLabel = findViewById(R.id.volumeLabel)
+        volume = getSharedPreferences("app", MODE_PRIVATE).getInt(PREF_VOLUME, 100).coerceIn(0, 100)
+        volumeControlStream = AudioManager.STREAM_MUSIC
         findViewById<View>(R.id.deleteButton).setOnClickListener {
             current()?.let { GalleryExport.confirmDelete(this, it) { removeCurrent() } }
         }
@@ -63,11 +75,13 @@ class PlayerActivity : Activity() {
         index = (savedInstanceState?.getInt(STATE_INDEX) ?: intent.getIntExtra(EXTRA_INDEX, 0))
             .coerceIn(0, files.size - 1)
 
-        controller = MediaController(this)
+        controller = VolumeAwareController(this) { handleVolumeKey(it) }
         controller.setAnchorView(findViewById(R.id.root))
         controller.setPrevNextListeners({ show(index + 1) }, { show(index - 1) })
         videoView.setMediaController(controller)
         videoView.setOnPreparedListener { mp ->
+            player = mp
+            applyVolume()
             mp.isLooping = true
             if (resumePosition > 0) {
                 videoView.seekTo(resumePosition)
@@ -100,6 +114,54 @@ class PlayerActivity : Activity() {
         show(index)
     }
 
+    // ------------------------------------------------------------------ volume par pas de 1 %
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        handleVolumeKey(event) || super.dispatchKeyEvent(event)
+
+    /** Boutons de volume : ±1 % sur le volume de lecture (maintenir appuyé = défilement continu). */
+    private fun handleVolumeKey(event: KeyEvent): Boolean {
+        val delta = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> 1
+            KeyEvent.KEYCODE_VOLUME_DOWN -> -1
+            else -> return false
+        }
+        if (event.action != KeyEvent.ACTION_DOWN) return true // relâchement : rien, mais consommé
+        if (delta > 0 && volume >= 100) {
+            // Déjà à 100 % : on monte d'un cran le volume du téléphone
+            getSystemService(AudioManager::class.java)
+                ?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+            showVolume(" · téléphone +1")
+            return true
+        }
+        volume = (volume + delta).coerceIn(0, 100)
+        getSharedPreferences("app", MODE_PRIVATE).edit().putInt(PREF_VOLUME, volume).apply()
+        applyVolume()
+        showVolume("")
+        return true
+    }
+
+    /**
+     * Courbe adaptée à l'oreille (puissance 2) : chaque pour cent s'entend à peu près pareil,
+     * à bas comme à haut volume. 100 % = volume du téléphone tel quel.
+     */
+    private fun applyVolume() {
+        val gain = (volume / 100f).let { it * it }
+        runCatching { player?.setVolume(gain, gain) }
+    }
+
+    private fun showVolume(extra: String) {
+        volumeLabel.text = (if (volume == 0) "🔇 " else "🔊 ") + "$volume %$extra"
+        volumeLabel.visibility = View.VISIBLE
+        volumeLabel.removeCallbacks(hideVolume)
+        volumeLabel.postDelayed(hideVolume, 1200)
+    }
+
+    /** Les contrôles de lecture ont leur propre fenêtre : ils transmettent les boutons de volume au lecteur. */
+    private class VolumeAwareController(context: Context, val onVolumeKey: (KeyEvent) -> Boolean) : MediaController(context) {
+        override fun dispatchKeyEvent(event: KeyEvent): Boolean = onVolumeKey(event) || super.dispatchKeyEvent(event)
+    }
+
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (::gestures.isInitialized && gestures.onTouchEvent(ev)) return true
         return super.dispatchTouchEvent(ev)
@@ -109,6 +171,7 @@ class PlayerActivity : Activity() {
         if (files.isEmpty()) return
         index = ((i % files.size) + files.size) % files.size
         val file = files[index]
+        player = null // l'ancien lecteur est libéré par VideoView ; le nouveau arrive dans onPrepared
         fileName.text = "${index + 1}/${files.size} · ${file.name}"
         showBar()
         if (Library.isImage(file)) {
@@ -198,6 +261,7 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_INDEX = "index"
+        private const val PREF_VOLUME = "player_volume"
         private const val STATE_INDEX = "index"
     }
 }
