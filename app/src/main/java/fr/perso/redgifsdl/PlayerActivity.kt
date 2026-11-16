@@ -50,8 +50,9 @@ class PlayerActivity : Activity() {
         findViewById<View>(R.id.moveButton).setOnClickListener {
             current()?.let { GalleryExport.confirmMove(this, it) { removeCurrent() } }
         }
+        val site = Site.fromLabel(intent.getStringExtra(LibraryActivity.EXTRA_SITE)) ?: Site.REDGIFS
         val folder = intent.getStringExtra(LibraryActivity.EXTRA_FOLDER) ?: ""
-        files = Library.media(Library.dir(this, folder))
+        files = Library.media(Library.dir(this, site, folder))
         if (files.isEmpty()) {
             finish()
             return
@@ -173,7 +174,10 @@ class PlayerActivity : Activity() {
 
     private fun hideSystemBars() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
+            if (Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                window.setDecorFitsSystemWindows(false) // bord à bord déjà imposé à partir d'Android 15
+            }
             window.insetsController?.let {
                 it.hide(WindowInsets.Type.systemBars())
                 it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

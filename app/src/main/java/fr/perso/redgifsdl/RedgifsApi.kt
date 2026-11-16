@@ -119,20 +119,22 @@ object RedgifsApi {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
-    private fun mediaFrom(gif: JSONObject): Media? {
+    private fun mediaFrom(gif: JSONObject, preferHd: Boolean = true): Media? {
         val id = gif.optString("id")
         val urls = gif.optJSONObject("urls") ?: return null
         val hd = urls.optString("hd").takeIf { it.startsWith("http") }
         val sd = urls.optString("sd").takeIf { it.startsWith("http") }
         return when {
-            hd != null -> Media(id, hd, true)
+            preferHd && hd != null -> Media(id, hd, true)
             sd != null -> Media(id, sd, false)
+            hd != null -> Media(id, hd, true)
             else -> null
         }
     }
 
     /** Une session = un jeton temporaire, réutilisé pour toutes les requêtes et renouvelé sur 401. */
-    class Session {
+    /** @param preferHd false = version SD (≈ 480p ou moins), selon la qualité choisie */
+    class Session(private val preferHd: Boolean = true) {
         private var token: String? = null
 
         private fun fetchTemporaryToken(): String {
@@ -179,7 +181,7 @@ object RedgifsApi {
                 if (e.code == 404 || e.code == 410) throw ApiException("Vidéo introuvable ou supprimée (« $id »)")
                 throw e
             }
-            return mediaFrom(json.getJSONObject("gif"))
+            return mediaFrom(json.getJSONObject("gif"), preferHd)
                 ?: throw ApiException("Aucune URL vidéo dans la réponse")
         }
 
@@ -205,7 +207,7 @@ object RedgifsApi {
                 pages = json.optInt("pages", 1)
                 val gifs = json.optJSONArray("gifs") ?: break
                 for (i in 0 until gifs.length()) {
-                    val m = mediaFrom(gifs.getJSONObject(i)) ?: continue
+                    val m = mediaFrom(gifs.getJSONObject(i), preferHd) ?: continue
                     if (seen.add(m.id.lowercase())) result += m
                 }
                 page++

@@ -1,10 +1,16 @@
 package fr.perso.redgifsdl
 
 import android.content.Context
+import java.io.File
 import java.util.Locale
+import java.util.UUID
 
-/** Enchaîne API + enregistrement dans la bibliothèque privée. À appeler depuis un thread d'arrière-plan. */
-class Downloader(private val context: Context, private val listener: Listener) {
+/** Enchaîne extraction + téléchargement + enregistrement dans la bibliothèque privée. Thread d'arrière-plan. */
+class Downloader(
+    private val context: Context,
+    private val listener: Listener,
+    private val quality: Quality = Quality.MAX,
+) {
 
     interface Listener {
         fun onStatus(text: String)
@@ -14,31 +20,38 @@ class Downloader(private val context: Context, private val listener: Listener) {
         fun onItem(index: Int, total: Int) {}
     }
 
-    /** [short] : résumé d'une ligne, utilisé quand plusieurs collections sont mises à jour d'affilée. */
+    /** [short] : résumé d'une ligne, utilisé quand plusieurs liens sont traités d'affilée. */
     class Outcome(val message: String, val success: Boolean, val short: String = message)
 
-    private val api = RedgifsApi.Session()
+    // RedGIFs n'a que 2 qualités : HD (souvent 1080p) et SD (≈ 480p)
+    private val api = RedgifsApi.Session(preferHd = quality.maxHeight > 480)
 
-    fun run(target: RedgifsApi.Target): Outcome = when (target) {
-        is RedgifsApi.Target.Single -> downloadSingle(target.id)
-        is RedgifsApi.Target.Collection -> downloadCollection(target.user, target.id)
+    fun run(target: Links.Target): Outcome = when (target) {
+        is Links.Target.RedgifsSingle -> downloadRedgifsSingle(target.id)
+        is Links.Target.RedgifsCollection -> downloadCollection(target.user, target.id)
+        is Links.Target.Page -> downloadPage(target.site, target.url)
     }
 
-    private fun downloadSingle(id: String): Outcome {
+    // ------------------------------------------------------------ RedGIFs
+
+    private fun downloadRedgifsSingle(id: String): Outcome {
         listener.onStatus("Connexion à RedGIFs…")
         listener.onProgress(null)
         val folder = Library.folderFor(null)
-        if (id in Library.existingKeys(context, folder)) {
-            return Outcome("Déjà dans la bibliothèque (${Library.label(folder)}) : rien à faire.", true)
+        if (id in Library.existingKeys(context, Site.REDGIFS, folder)) {
+            return Outcome("Déjà dans la bibliothèque (RedGIFs) : rien à faire.", true, "RedGIFs $id : déjà là")
         }
         val media = api.gif(id)
         listener.onItem(0, 1)
-        val file = downloadOne(media, folder) { written, total ->
+        val file = downloadRedgifs(media, folder) { written, total ->
             listener.onStatus("Téléchargement de ${media.fileName} (${quality(media)})… ${sizes(written, total)}")
             listener.onProgress(fraction(written, total))
         }
-        val note = if (media.isHd) " (HD)" else " (SD, pas de HD dispo)"
-        return Outcome("Vidéo ajoutée à la bibliothèque$note :\n${Library.label(folder)} › ${file.name}", true)
+        val note = if (media.isHd) " (HD)" else " (SD)"
+        return Outcome(
+            "Vidéo ajoutée à la bibliothèque$note :\nRedGIFs › ${Library.label(folder)} › ${file.name}",
+            true, "RedGIFs : ${file.name}",
+        )
     }
 
     private fun downloadCollection(user: String, collectionId: String): Outcome {
@@ -63,7 +76,7 @@ class Downloader(private val context: Context, private val listener: Listener) {
 
         // Vérification AVANT téléchargement : ce qui est déjà dans le dossier est ignoré,
         // ainsi que les vidéos que tu as supprimées ou déplacées dans la galerie.
-        val existing = Library.existingKeys(context, folder)
+        val existing = Library.existingKeys(context, Site.REDGIFS, folder)
         val excluded = saved?.excluded ?: emptySet()
         val already = items.filter { it.id.lowercase() in existing }
         val skipped = items.filter { it.id.lowercase() !in existing && it.id.lowercase() in excluded }
@@ -78,18 +91,17 @@ class Downloader(private val context: Context, private val listener: Listener) {
         }
 
         val failed = ArrayList<String>()
-        var hdMissing = 0
+        var sdCount = 0
         todo.forEachIndexed { index, media ->
             val label = "$header\n\n${index + 1}/${todo.size} : ${media.fileName} (${quality(media)})"
             listener.onStatus(label)
             listener.onItem(index, todo.size)
             try {
-                downloadOne(media, folder) { written, total ->
+                downloadRedgifs(media, folder) { written, total ->
                     listener.onStatus("$label\n${sizes(written, total)}")
-                    val f = fraction(written, total) ?: 0f
-                    listener.onProgress((index + f) / todo.size)
+                    listener.onProgress((index + (fraction(written, total) ?: 0f)) / todo.size)
                 }
-                if (!media.isHd) hdMissing++
+                if (!media.isHd) sdCount++
             } catch (e: Exception) {
                 failed += "${media.id} : ${describe(e)}"
             }
@@ -100,42 +112,207 @@ class Downloader(private val context: Context, private val listener: Listener) {
         val sb = StringBuilder()
         sb.append("Collection « ").append(info.name).append(" » terminée\n")
         sb.append("• ").append(ok).append(" téléchargée(s)")
-        if (hdMissing > 0) sb.append(" (dont ").append(hdMissing).append(" en SD)")
+        if (sdCount > 0) sb.append(" (dont ").append(sdCount).append(" en SD)")
         sb.append("\n• ").append(already.size).append(" déjà présente(s), ignorée(s)")
         if (skipped.isNotEmpty()) {
             sb.append("\n• ").append(skipped.size).append(" exclue(s) (supprimées ou déplacées par toi)")
         }
-        if (failed.isNotEmpty()) {
-            sb.append("\n• ").append(failed.size).append(" en échec :")
-            failed.forEach { sb.append("\n   - ").append(it) }
-        }
-        sb.append("\n\nBibliothèque › ").append(Library.label(folder))
+        appendFailures(sb, failed)
+        sb.append("\n\nBibliothèque › RedGIFs › ").append(Library.label(folder))
         val short = "« ${info.name} » : $ok nouvelle(s)" + (if (failed.isNotEmpty()) ", ${failed.size} en échec" else "")
         return Outcome(sb.toString(), failed.isEmpty(), short)
     }
 
-    private fun downloadOne(
+    private fun downloadRedgifs(
         media: RedgifsApi.Media,
         folder: String,
         onProgress: (Long, Long) -> Unit,
-    ): java.io.File = RedgifsApi.retrying {
+    ): File = RedgifsApi.retrying {
         // En cas d'échec, Library.save supprime le fichier partiel : chaque tentative repart de zéro.
         val conn = api.openStream(media)
         try {
-            val total = conn.contentLengthLong
             conn.inputStream.use { input ->
-                Library.save(context, folder, media.fileName, input, total, onProgress)
+                Library.save(context, Site.REDGIFS, folder, media.fileName, input, conn.contentLengthLong, onProgress)
             }
         } finally {
             conn.disconnect()
         }
     }
 
+    // ------------------------------------------------------------ Autres sites
+
+    private fun downloadPage(site: Site, url: String): Outcome {
+        listener.onStatus("Analyse de la page ${site.label}…")
+        listener.onProgress(null)
+        val items = RedgifsApi.retrying { Extractors.forSite(site).resolve(url) }
+
+        val existing = Library.existingKeys(context, site, "")
+        val already = items.filter { it.id.lowercase() in existing }
+        val todo = items.filter { it.id.lowercase() !in existing }
+        if (todo.isEmpty()) {
+            return Outcome("Déjà dans la bibliothèque (${site.label}) : rien à faire.", true, "${site.label} : déjà là")
+        }
+
+        val saved = ArrayList<Pair<File, Int?>>()
+        val failed = ArrayList<String>()
+        todo.forEachIndexed { index, item ->
+            val name = item.title?.take(50) ?: item.id
+            val label = (if (todo.size > 1) "${site.label} : ${index + 1}/${todo.size}\n" else "${site.label}\n") + name
+            listener.onStatus(label)
+            listener.onItem(index, todo.size)
+            try {
+                saved += fetch(site, item) { f, detail ->
+                    listener.onStatus("$label\n$detail")
+                    listener.onProgress(f?.let { (index + it) / todo.size })
+                }
+            } catch (e: Exception) {
+                if (todo.size == 1) throw e
+                failed += "$name : ${describe(e)}"
+            }
+        }
+
+        if (todo.size == 1) {
+            val (file, height) = saved.single()
+            val q = height?.let { " (${it}p)" } ?: ""
+            return Outcome(
+                "Vidéo ajoutée à la bibliothèque$q :\n${site.label} › ${file.name}",
+                true, "${site.label} : ${file.name}",
+            )
+        }
+        val sb = StringBuilder("${site.label} : ${saved.size} fichier(s) téléchargé(s)")
+        if (already.isNotEmpty()) sb.append("\n• ").append(already.size).append(" déjà présent(s), ignoré(s)")
+        appendFailures(sb, failed)
+        return Outcome(sb.toString(), failed.isEmpty(), "${site.label} : ${saved.size} fichier(s)")
+    }
+
+    /** Télécharge un élément selon son plan. @return le fichier et la hauteur choisie (si connue). */
+    private fun fetch(site: Site, item: Resolved, report: (Float?, String) -> Unit): Pair<File, Int?> {
+        val variant = Extractors.pick(item.variants, quality)
+        val q = variant.height?.let { "${it}p" } ?: "qualité d'origine"
+        val tmpDir = File(context.cacheDir, "dl").apply { mkdirs() }
+        fun tmp(ext: String) = File(tmpDir, UUID.randomUUID().toString() + "." + ext)
+
+        val file = when (val plan = variant.plan) {
+            is Plan.Direct -> RedgifsApi.retrying {
+                val conn = Http.openOk(plan.url, plan.headers)
+                try {
+                    val name = Library.fileNameFor(item.title, item.id, plan.ext)
+                    conn.inputStream.use { input ->
+                        Library.save(context, site, "", name, input, conn.contentLengthLong) { w, t ->
+                            report(fraction(w, t), "$q · ${sizes(w, t)}")
+                        }
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            }
+
+            is Plan.Redgifs -> {
+                val media = api.gif(plan.id)
+                val ext = media.fileName.substringAfterLast('.', "mp4")
+                RedgifsApi.retrying {
+                    val conn = api.openStream(media)
+                    try {
+                        conn.inputStream.use { input ->
+                            val name = Library.fileNameFor(item.title, item.id, ext)
+                            Library.save(context, site, "", name, input, conn.contentLengthLong) { w, t ->
+                                report(fraction(w, t), "${quality(media)} · ${sizes(w, t)}")
+                            }
+                        }
+                    } finally {
+                        conn.disconnect()
+                    }
+                }
+            }
+
+            is Plan.Hls -> {
+                val video = tmp("ts")
+                val audio = plan.audioUrl?.let { tmp("ts") }
+                val out = tmp("mp4")
+                try {
+                    val videoShare = if (audio != null) 0.75f else 0.95f
+                    val fmp4 = Hls.download(plan.url, plan.headers, video) { d, t ->
+                        report(videoShare * d / t, "$q · segment $d/$t")
+                    }
+                    if (audio != null) {
+                        Hls.download(plan.audioUrl, plan.headers, audio) { d, t ->
+                            report(videoShare + 0.2f * d / t, "$q · audio $d/$t")
+                        }
+                    }
+                    report(null, "$q · assemblage…")
+                    val name = Library.fileNameFor(item.title, item.id, "mp4")
+                    if (fmp4 && audio == null) {
+                        Library.importFile(context, site, "", name, video)
+                    } else {
+                        try {
+                            Remux.mux(listOfNotNull(video, audio), out)
+                            Library.importFile(context, site, "", name, out)
+                        } catch (e: Exception) {
+                            // Assemblage impossible : on garde le flux brut (lisible tel quel par le lecteur)
+                            val ext = if (fmp4) "mp4" else "ts"
+                            Library.importFile(context, site, "", Library.fileNameFor(item.title, item.id, ext), video)
+                        }
+                    }
+                } finally {
+                    video.delete()
+                    audio?.delete()
+                    out.delete()
+                }
+            }
+
+            is Plan.Split -> {
+                val video = tmp("mp4")
+                val audio = tmp("m4a")
+                val out = tmp("mp4")
+                try {
+                    RedgifsApi.retrying {
+                        Http.download(plan.videoUrl, plan.headers, video) { w, t ->
+                            report((fraction(w, t) ?: 0f) * 0.75f, "$q · vidéo ${sizes(w, t)}")
+                        }
+                    }
+                    val audioUrl = plan.audioUrl
+                    val hasAudio = audioUrl != null && runCatching {
+                        RedgifsApi.retrying {
+                            Http.download(audioUrl, plan.headers, audio) { w, t ->
+                                report(0.75f + (fraction(w, t) ?: 0f) * 0.2f, "$q · son ${sizes(w, t)}")
+                            }
+                        }
+                    }.isSuccess
+                    report(null, "$q · assemblage…")
+                    val name = Library.fileNameFor(item.title, item.id, "mp4")
+                    if (!hasAudio) {
+                        Library.importFile(context, site, "", name, video) // vidéo sans piste son à l'origine
+                    } else {
+                        try {
+                            Remux.mux(listOf(video, audio), out)
+                            Library.importFile(context, site, "", name, out)
+                        } catch (e: Exception) {
+                            Library.importFile(context, site, "", name, video) // au pire : sans le son
+                        }
+                    }
+                } finally {
+                    video.delete()
+                    audio.delete()
+                    out.delete()
+                }
+            }
+        }
+        report(1f, q)
+        return file to variant.height
+    }
+
+    private fun appendFailures(sb: StringBuilder, failed: List<String>) {
+        if (failed.isEmpty()) return
+        sb.append("\n• ").append(failed.size).append(" en échec :")
+        failed.forEach { sb.append("\n   - ").append(it) }
+    }
+
     companion object {
         fun describe(e: Exception): String = when (e) {
             is RedgifsApi.ApiException -> e.message ?: "Erreur API"
-            is java.net.UnknownHostException -> "Pas de connexion Internet"
+            is java.net.UnknownHostException -> "Pas de connexion Internet (ou site bloqué par ton opérateur)"
             is java.net.SocketTimeoutException -> "Délai dépassé, réessaie"
+            is javax.net.ssl.SSLException -> "Connexion sécurisée refusée (site bloqué ? essaie avec un VPN)"
             else -> "${e.javaClass.simpleName} : ${e.message}"
         }
 

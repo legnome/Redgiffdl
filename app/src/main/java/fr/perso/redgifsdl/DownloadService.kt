@@ -54,7 +54,8 @@ class DownloadService : Service() {
         lastStartId = startId
         // Doit être appelé rapidement après startForegroundService(), même si le lien est invalide.
         startInForeground()
-        val target = intent?.getStringExtra(EXTRA_TEXT)?.let(RedgifsApi::parse)
+        val target = intent?.getStringExtra(EXTRA_TEXT)?.let(Links::parse)
+        val quality = Quality.fromName(intent?.getStringExtra(EXTRA_QUALITY))
         if (target == null) {
             stopIfIdle()
             return START_NOT_STICKY
@@ -64,13 +65,13 @@ class DownloadService : Service() {
             busy = true
             queued = count - 1
         }
-        executor.execute { runJob(target) }
+        executor.execute { runJob(target, quality) }
         return START_NOT_STICKY
     }
 
-    private fun runJob(target: RedgifsApi.Target) {
+    private fun runJob(target: Links.Target, quality: Quality) {
         DownloadState.update {
-            status = "Connexion à RedGIFs…"
+            status = "Connexion…"
             statusColor = null
             fraction = null
         }
@@ -95,10 +96,14 @@ class DownloadService : Service() {
         }
 
         var (message, success, short) = try {
-            val outcome = Downloader(this, listener).run(target)
+            val outcome = Downloader(this, listener, quality).run(target)
             Triple((if (outcome.success) "✔ " else "✖ ") + outcome.message, outcome.success, outcome.short)
         } catch (e: Exception) {
-            val label = (target as? RedgifsApi.Target.Collection)?.let { "Collection ${it.id}" } ?: "Vidéo"
+            val label = when (target) {
+                is Links.Target.RedgifsCollection -> "Collection ${target.id}"
+                is Links.Target.RedgifsSingle -> "RedGIFs ${target.id}"
+                is Links.Target.Page -> target.site.label
+            }
             Triple("✖ ${Downloader.describe(e)}", false, "$label : ${Downloader.describe(e)}")
         }
         synchronized(batch) { batch += short to success }
@@ -243,13 +248,18 @@ class DownloadService : Service() {
 
     companion object {
         const val EXTRA_TEXT = "text"
+        const val EXTRA_QUALITY = "quality"
         private const val CHANNEL_PROGRESS = "progress"
         private const val CHANNEL_DONE = "done"
         private const val NOTIF_PROGRESS = 1
         private const val NOTIF_DONE = 2
 
-        fun start(context: Context, text: String) {
-            context.startForegroundService(Intent(context, DownloadService::class.java).putExtra(EXTRA_TEXT, text))
+        fun start(context: Context, text: String, quality: Quality = Quality.MAX) {
+            context.startForegroundService(
+                Intent(context, DownloadService::class.java)
+                    .putExtra(EXTRA_TEXT, text)
+                    .putExtra(EXTRA_QUALITY, quality.name)
+            )
         }
     }
 }

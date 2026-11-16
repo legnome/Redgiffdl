@@ -2,16 +2,21 @@ package fr.perso.redgifsdl
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -27,6 +32,8 @@ class MainActivity : Activity() {
     private lateinit var downloadButton: Button
     private lateinit var progress: ProgressBar
     private lateinit var status: TextView
+    private lateinit var extraLinks: LinearLayout
+    private lateinit var qualityButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,17 +44,22 @@ class MainActivity : Activity() {
         downloadButton = findViewById(R.id.downloadButton)
         progress = findViewById(R.id.progress)
         status = findViewById(R.id.status)
+        extraLinks = findViewById(R.id.extraLinks)
+        qualityButton = findViewById(R.id.qualityButton)
+        updateQualityButton()
+        qualityButton.setOnClickListener { chooseQuality() }
+        findViewById<Button>(R.id.addLinkButton).setOnClickListener { addLinkRow() }
 
         findViewById<View>(R.id.root).applySystemBarInsets()
 
-        downloadButton.setOnClickListener { startDownload(urlInput.text.toString()) }
+        downloadButton.setOnClickListener { startDownload(allFieldsText()) }
         findViewById<Button>(R.id.pasteButton).setOnClickListener { pasteFromClipboard() }
         findViewById<Button>(R.id.libraryButton).setOnClickListener {
             startActivity(Intent(this, LibraryActivity::class.java))
         }
         urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
-                startDownload(urlInput.text.toString()); true
+                startDownload(allFieldsText()); true
             } else false
         }
 
@@ -84,7 +96,6 @@ class MainActivity : Activity() {
             Intent.ACTION_VIEW -> intent.dataString
             else -> null
         } ?: return
-        urlInput.setText(text.trim())
         startDownload(text)
     }
 
@@ -93,8 +104,10 @@ class MainActivity : Activity() {
         val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         if (text.isNullOrBlank()) {
             Toast.makeText(this, "Presse-papiers vide", Toast.LENGTH_SHORT).show()
-        } else {
+        } else if (urlInput.text.isBlank()) {
             urlInput.setText(text.trim())
+        } else {
+            addLinkRow(text.trim()) // champ principal déjà rempli : nouveau champ
         }
     }
 
@@ -113,21 +126,93 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Tous les liens saisis : champ principal + champs ajoutés avec "+". */
+    private fun allFieldsText(): String =
+        (listOf(urlInput) + extraFields()).joinToString("\n") { it.text.toString() }
+
+    private fun extraFields(): List<EditText> =
+        (0 until extraLinks.childCount).mapNotNull { (extraLinks.getChildAt(it) as? ViewGroup)?.getChildAt(0) as? EditText }
+
+    /** Ajoute une ligne de saisie (bouton "+"), avec un bouton ✕ pour la retirer. */
+    private fun addLinkRow(text: String = "") {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val field = EditText(this).apply {
+            hint = getString(R.string.hint_url)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            maxLines = 3
+            setText(text)
+        }
+        val remove = Button(this, null, android.R.attr.borderlessButtonStyle).apply {
+            this.text = "✕"
+            contentDescription = getString(R.string.remove_link)
+            minWidth = 0
+            setOnClickListener { extraLinks.removeView(row) }
+        }
+        row.addView(field, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(remove, LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.WRAP_CONTENT))
+        extraLinks.addView(row)
+        field.requestFocus()
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // --- Qualité ---
+
+    private fun currentQuality(): Quality =
+        Quality.fromName(getSharedPreferences("app", MODE_PRIVATE).getString("quality", null))
+
+    private fun updateQualityButton() {
+        qualityButton.text = getString(R.string.quality_button, currentQuality().label)
+    }
+
+    private fun chooseQuality() {
+        val all = Quality.entries
+        AlertDialog.Builder(this)
+            .setTitle(R.string.quality_title)
+            .setSingleChoiceItems(all.map { it.label }.toTypedArray(), all.indexOf(currentQuality())) { dialog, which ->
+                getSharedPreferences("app", MODE_PRIVATE).edit().putString("quality", all[which].name).apply()
+                updateQualityButton()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    // --- Lancement ---
+
+    /** Découpe le texte en liens et met chacun dans la file du service de téléchargement. */
     private fun startDownload(rawText: String) {
-        if (RedgifsApi.parse(rawText) == null) {
+        val unknown = ArrayList<String>()
+        val links = Links.parseAll(rawText, unknown)
+        if (links.isEmpty()) {
             DownloadState.update {
-                status = "✖ Lien RedGIFs invalide.\nExemples :\nhttps://www.redgifs.com/watch/xxxx\n" +
-                    "https://www.redgifs.com/users/nom/collections/xxxx"
+                status = if (rawText.isBlank()) {
+                    "✖ Colle d'abord un lien."
+                } else {
+                    "✖ Lien non reconnu.\nSites pris en charge : RedGIFs (vidéos et collections), XVideos, XNXX, " +
+                        "Pornhub, X/Twitter, Reddit."
+                }
                 statusColor = R.color.error
             }
             return
         }
         hideKeyboard()
         requestNotificationPermissionOnce()
-        if (DownloadState.busy) {
-            Toast.makeText(this, "Ajouté à la file d'attente", Toast.LENGTH_SHORT).show()
-        }
-        DownloadService.start(this, rawText)
+        val quality = currentQuality()
+        val wasBusy = DownloadState.busy
+        links.forEach { (link, _) -> DownloadService.start(this, link, quality) }
+
+        // Champs vidés : les liens sont dans la file
+        urlInput.setText("")
+        extraLinks.removeAllViews()
+
+        val parts = ArrayList<String>()
+        if (links.size > 1 || wasBusy) parts += "${links.size} lien(s) ajouté(s) à la file"
+        if (unknown.isNotEmpty()) parts += "${unknown.size} lien(s) non reconnu(s) ignoré(s)"
+        if (parts.isNotEmpty()) Toast.makeText(this, parts.joinToString(" · "), Toast.LENGTH_LONG).show()
     }
 
     /**

@@ -7,7 +7,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.Toast
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
@@ -15,20 +14,26 @@ import android.widget.GridView
 import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 
 /**
- * Bibliothèque privée.
- * - sans extra : liste des dossiers ("Vidéos seules" + une entrée par collection)
- * - avec EXTRA_FOLDER : grille de miniatures du dossier
- * Appui long = supprimer.
+ * Bibliothèque privée, sur trois niveaux :
+ * - sans extra : liste des sites (RedGIFs, XVideos, …)
+ * - EXTRA_SITE = RedGIFs sans dossier : "Vidéos seules" + une entrée par collection (bouton Mettre à jour)
+ * - EXTRA_SITE (+ EXTRA_FOLDER) : grille de miniatures
+ * Appui long = menu (supprimer, déplacer dans la galerie, mettre à jour une collection).
  */
 class LibraryActivity : Activity() {
 
+    private var site: Site? = null
     private var folder: String? = null
     private lateinit var folderList: ListView
     private lateinit var grid: GridView
     private lateinit var empty: TextView
+
+    /** Une ligne de liste : site ou dossier de collection. */
+    private class Row(val title: String, val subtitle: String, val cover: File?, val onClick: () -> Unit, val onLongClick: (() -> Unit)?)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,8 +44,13 @@ class LibraryActivity : Activity() {
         grid = findViewById(R.id.grid)
         empty = findViewById(R.id.empty)
 
+        site = Site.fromLabel(intent.getStringExtra(EXTRA_SITE))
         folder = intent.getStringExtra(EXTRA_FOLDER)
-        title = folder?.let { Library.label(it) } ?: getString(R.string.library)
+        title = when {
+            site == null -> getString(R.string.library)
+            folder != null && site == Site.REDGIFS -> Library.label(folder!!)
+            else -> site!!.label
+        }
         actionBar?.setDisplayHomeAsUpEnabled(true)
     }
 
@@ -49,10 +59,14 @@ class LibraryActivity : Activity() {
         refresh()
     }
 
+    /** Liste des collections RedGIFs (niveau "dossiers RedGIFs") ? */
+    private val isRedgifsFolders get() = site == Site.REDGIFS && folder == null
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // À la racine : toutes les collections ; dans un dossier de collection : celle-ci seulement.
+        // Mise à jour : uniquement pour RedGIFs (toutes les collections, ou celle du dossier ouvert)
         val f = folder
-        if (f == null || CollectionStore.forFolder(this, f) != null) {
+        val show = isRedgifsFolders || (site == Site.REDGIFS && f != null && CollectionStore.forFolder(this, f) != null)
+        if (show) {
             menu.add(Menu.NONE, MENU_UPDATE, Menu.NONE, getString(R.string.update))
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_WITH_TEXT)
         }
@@ -67,12 +81,9 @@ class LibraryActivity : Activity() {
             }
             MENU_UPDATE -> {
                 val f = folder
-                val targets = if (f == null) {
-                    CollectionStore.all(this)
-                } else {
-                    listOfNotNull(CollectionStore.forFolder(this, f))
-                }
-                updateCollections(targets)
+                updateCollections(
+                    if (f == null) CollectionStore.all(this) else listOfNotNull(CollectionStore.forFolder(this, f))
+                )
                 return true
             }
         }
@@ -92,80 +103,111 @@ class LibraryActivity : Activity() {
             ).show()
             return
         }
-        targets.forEach { DownloadService.start(this, it.url) }
+        val quality = Quality.fromName(getSharedPreferences("app", MODE_PRIVATE).getString("quality", null))
+        targets.forEach { DownloadService.start(this, it.url, quality) }
         Toast.makeText(this, "Mise à jour de ${targets.size} collection(s)…", Toast.LENGTH_SHORT).show()
         // Retour à l'écran principal pour suivre la progression
         startActivity(Intent(this, MainActivity::class.java))
     }
 
     private fun refresh() {
-        val f = folder
-        if (f == null) showFolders() else showMedia(f)
+        val s = site
+        when {
+            s == null -> showSites()
+            isRedgifsFolders -> showRedgifsFolders()
+            else -> showMedia(s, folder ?: "")
+        }
     }
 
-    // --- Liste des dossiers ---
+    // --- Niveau 1 : sites ---
 
-    private fun showFolders() {
-        val folders = Library.folders(this)
-        grid.visibility = View.GONE
-        folderList.visibility = if (folders.isEmpty()) View.GONE else View.VISIBLE
-        empty.visibility = if (folders.isEmpty()) View.VISIBLE else View.GONE
-        empty.setText(R.string.library_empty)
+    private fun showSites() {
+        val sites = Library.sites(this)
+        showRows(sites.map { e ->
+            Row(e.site.label, "${e.count} fichier(s)", e.cover, onClick = {
+                startActivity(Intent(this, LibraryActivity::class.java).putExtra(EXTRA_SITE, e.site.label))
+            }, onLongClick = null)
+        })
+    }
+
+    // --- Niveau 2 (RedGIFs) : vidéos seules + collections ---
+
+    private fun showRedgifsFolders() {
+        val folders = Library.folders(this, Site.REDGIFS)
         val linked = CollectionStore.all(this).mapTo(HashSet()) { it.folder }
-        folderList.adapter = FolderAdapter(this, folders, linked)
-        folderList.setOnItemClickListener { _, _, pos, _ ->
-            startActivity(Intent(this, LibraryActivity::class.java).putExtra(EXTRA_FOLDER, folders[pos].name))
+        showRows(folders.map { fo ->
+            val saved = !fo.isSingles && fo.name in linked
+            Row(
+                fo.label,
+                "${fo.count} fichier(s)" + if (saved) " · ⟳ lien enregistré" else "",
+                Library.media(fo.dir).firstOrNull(),
+                onClick = {
+                    startActivity(
+                        Intent(this, LibraryActivity::class.java)
+                            .putExtra(EXTRA_SITE, Site.REDGIFS.label)
+                            .putExtra(EXTRA_FOLDER, fo.name)
+                    )
+                },
+                onLongClick = { folderMenu(fo) },
+            )
+        })
+    }
+
+    private fun folderMenu(fo: Library.Folder) {
+        val saved = if (fo.isSingles) null else CollectionStore.forFolder(this, fo.name)
+        val deleteFolder = {
+            confirm(
+                "Supprimer « ${fo.label} » et ses ${fo.count} fichier(s) ?" +
+                    (if (saved != null) "\n\nLe lien de la collection sera aussi oublié." else "")
+            ) {
+                Library.deleteFolder(this, Site.REDGIFS, fo)
+                refresh()
+            }
         }
-        folderList.setOnItemLongClickListener { _, _, pos, _ ->
-            val fo = folders[pos]
-            val saved = if (fo.isSingles) null else CollectionStore.forFolder(this, fo.name)
-            val deleteFolder = {
-                confirm(
-                    "Supprimer « ${fo.label} » et ses ${fo.count} fichier(s) ?" +
-                        (if (saved != null) "\n\nLe lien de la collection sera aussi oublié." else "")
-                ) {
-                    Library.deleteFolder(this, fo)
-                    refresh()
+        if (saved == null) {
+            deleteFolder()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle(fo.label)
+                .setItems(arrayOf("Mettre à jour cette collection", "Supprimer le dossier")) { _, which ->
+                    if (which == 0) updateCollections(listOf(saved)) else deleteFolder()
                 }
-            }
-            if (saved == null) {
-                deleteFolder()
-            } else {
-                AlertDialog.Builder(this)
-                    .setTitle(fo.label)
-                    .setItems(arrayOf("Mettre à jour cette collection", "Supprimer le dossier")) { _, which ->
-                        if (which == 0) updateCollections(listOf(saved)) else deleteFolder()
-                    }
-                    .show()
-            }
-            true
+                .show()
         }
     }
 
-    private class FolderAdapter(
-        val context: Context,
-        val folders: List<Library.Folder>,
-        val linked: Set<String>,
-    ) : BaseAdapter() {
-        override fun getCount() = folders.size
-        override fun getItem(position: Int) = folders[position]
+    private fun showRows(rows: List<Row>) {
+        grid.visibility = View.GONE
+        folderList.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
+        empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+        empty.setText(R.string.library_empty)
+        folderList.adapter = RowAdapter(this, rows)
+        folderList.setOnItemClickListener { _, _, pos, _ -> rows[pos].onClick() }
+        folderList.setOnItemLongClickListener { _, _, pos, _ ->
+            rows[pos].onLongClick?.invoke()
+            rows[pos].onLongClick != null
+        }
+    }
+
+    private class RowAdapter(val context: Context, val rows: List<Row>) : BaseAdapter() {
+        override fun getCount() = rows.size
+        override fun getItem(position: Int) = rows[position]
         override fun getItemId(position: Int) = position.toLong()
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
             val v = convertView ?: View.inflate(context, R.layout.item_folder, null)
-            val f = folders[position]
-            v.findViewById<TextView>(R.id.title).text = f.label
-            v.findViewById<TextView>(R.id.subtitle).text =
-                "${f.count} fichier(s)" + if (!f.isSingles && f.name in linked) " · ⟳ lien enregistré" else ""
+            val r = rows[position]
+            v.findViewById<TextView>(R.id.title).text = r.title
+            v.findViewById<TextView>(R.id.subtitle).text = r.subtitle
             val thumb = v.findViewById<ImageView>(R.id.thumb)
-            Library.media(f.dir).firstOrNull()?.let { Thumbs.load(context, it, thumb) } ?: thumb.setImageDrawable(null)
+            r.cover?.let { Thumbs.load(context, it, thumb) } ?: run { thumb.tag = null; thumb.setImageDrawable(null) }
             return v
         }
     }
 
-    // --- Grille d'un dossier ---
+    // --- Niveau 3 : grille ---
 
-    private fun showMedia(f: String) {
-        val files = Library.media(Library.dir(this, f))
+    private fun showMedia(s: Site, f: String) {
+        val files = Library.media(Library.dir(this, s, f))
         if (files.isEmpty()) {
             finish() // dossier vidé
             return
@@ -177,6 +219,7 @@ class LibraryActivity : Activity() {
         grid.setOnItemClickListener { _, _, pos, _ ->
             startActivity(
                 Intent(this, PlayerActivity::class.java)
+                    .putExtra(EXTRA_SITE, s.label)
                     .putExtra(EXTRA_FOLDER, f)
                     .putExtra(PlayerActivity.EXTRA_INDEX, pos)
             )
@@ -215,6 +258,7 @@ class LibraryActivity : Activity() {
 
     companion object {
         private const val MENU_UPDATE = 1
+        const val EXTRA_SITE = "site"
         const val EXTRA_FOLDER = "folder"
     }
 }

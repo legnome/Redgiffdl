@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">redDL</string>
-    <string name="hint_url">https://www.redgifs.com/watch/…</string>
+    <string name="hint_url">Lien RedGIFs, XVideos, XNXX, Pornhub, X/Twitter, Reddit…</string>
     <string name="download">Télécharger</string>
+    <string name="quality_button">Qualité : %1$s ▾</string>
+    <string name="quality_title">Qualité maximale</string>
     <string name="download_queue">Ajouter à la file d\'attente</string>
     <string name="paste">Coller</string>
+    <string name="add_link">Ajouter un lien</string>
+    <string name="remove_link">Retirer ce lien</string>
     <string name="library">Bibliothèque</string>
     <string name="library_button">Ma bibliothèque</string>
     <string name="update">⟳ Mettre à jour</string>
     <string name="delete">🗑 Supprimer</string>
     <string name="move_to_gallery">🖼 Galerie</string>
     <string name="library_empty">Aucune vidéo pour l\'instant.\nTélécharge une vidéo ou une collection depuis l\'écran principal.</string>
-    <string name="intro">Colle un lien RedGIFs (vidéo ou collection), ou utilise « Partager » depuis le navigateur. Les vidéos sont rangées dans la bibliothèque privée de l\'appli (invisible dans la Galerie), une collection = un dossier. Les vidéos déjà téléchargées sont ignorées.</string>
+    <string name="intro">Colle un ou plusieurs liens (RedGIFs, XVideos, XNXX, Pornhub, X/Twitter, Reddit), ou utilise « Partager » depuis le navigateur. Tout est rangé dans la bibliothèque privée de l\'appli (invisible dans la Galerie), un dossier par site. Les vidéos déjà téléchargées sont ignorées.</string>
 </resources>

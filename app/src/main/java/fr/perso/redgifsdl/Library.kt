@@ -19,58 +19,126 @@ import java.io.OutputStream
  * invisibles dans la Galerie, Google Photos et les gestionnaires de fichiers.
  * Attention : ce dossier est effacé si l'appli est désinstallée.
  *
- * Organisation : les vidéos seules à la racine, une collection = un sous-dossier.
+ * Organisation : library/<Site>/… ; pour RedGIFs, les vidéos seules à la racine du site
+ * et une collection = un sous-dossier. Pour les autres sites, tout à la racine du site.
  */
 object Library {
 
-    /** Nom affiché pour la racine (vidéos téléchargées une par une). */
+    /** Nom affiché pour la racine RedGIFs (vidéos téléchargées une par une). */
     const val SINGLES_LABEL = "Vidéos seules"
 
     private const val PART = ".part"
+    private const val LAYOUT_MARKER = ".layout2"
 
     class Folder(val name: String, val dir: File, val count: Int) {
         val isSingles get() = name.isEmpty()
         val label get() = if (isSingles) SINGLES_LABEL else name
     }
 
-    fun root(context: Context): File = File(context.filesDir, "library").apply { mkdirs() }
+    class SiteEntry(val site: Site, val count: Int, val cover: File?)
+
+    @Volatile
+    private var layoutChecked = false
+
+    fun root(context: Context): File {
+        val r = File(context.filesDir, "library")
+        if (!layoutChecked) {
+            synchronized(this) {
+                if (!layoutChecked) {
+                    migrateLayout(context, r)
+                    layoutChecked = true
+                }
+            }
+        }
+        return r.apply { mkdirs() }
+    }
+
+    /**
+     * Versions ≤ 2.3 : tout était directement dans library/ (RedGIFs uniquement).
+     * On déplace l'ensemble dans library/RedGIFs par simple renommage de dossier.
+     */
+    private fun migrateLayout(context: Context, r: File) {
+        if (File(r, LAYOUT_MARKER).exists()) return
+        val hasOld = r.isDirectory && (r.list()?.isNotEmpty() == true)
+        if (hasOld) {
+            val tmp = File(context.filesDir, "library_old")
+            if (r.renameTo(tmp)) {
+                r.mkdirs()
+                if (!tmp.renameTo(File(r, Site.REDGIFS.label))) {
+                    // Échec improbable : on remet en place pour ne rien perdre
+                    r.delete()
+                    tmp.renameTo(r)
+                    return
+                }
+            } else {
+                return
+            }
+        }
+        r.mkdirs()
+        File(r, LAYOUT_MARKER).createNewFile()
+    }
+
+    fun siteDir(context: Context, site: Site): File = File(root(context), site.label)
+
+    /** [folder] : "" pour la racine du site, sinon le sous-dossier (collection RedGIFs). */
+    fun dir(context: Context, site: Site, folder: String): File =
+        if (folder.isEmpty()) siteDir(context, site) else File(siteDir(context, site), folder)
 
     /** "" pour les vidéos seules, sinon le nom (nettoyé) de la collection. */
     fun folderFor(collectionName: String?): String = if (collectionName == null) "" else sanitize(collectionName)
 
-    fun dir(context: Context, folder: String): File =
-        if (folder.isEmpty()) root(context) else File(root(context), folder)
-
     fun label(folder: String) = folder.ifEmpty { SINGLES_LABEL }
 
-    private fun sanitize(name: String): String {
+    fun sanitize(name: String, max: Int = 80): String {
         val cleaned = name
             .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "_")
+            .replace(Regex("""\s+"""), " ")
             .trim().trim('.').trim()
-            .take(80)
+            .take(max).trim()
         return cleaned.ifEmpty { "Collection" }
     }
 
+    /** Nom de fichier lisible avec l'identifiant entre crochets : "Titre [id].mp4" (ou "id.mp4" sans titre). */
+    fun fileNameFor(title: String?, id: String, ext: String): String {
+        val t = title?.let { sanitize(it, 60) }?.takeIf { it != "Collection" }
+        return if (t == null) "$id.$ext" else "$t [$id].$ext"
+    }
+
+    private val BRACKET_ID = Regex("""\[([^\[\]]+)]\s*(?:\(\d+\))?\.[A-Za-z0-9]+$""")
+
     /**
-     * Clé d'identification d'un fichier déjà téléchargé : l'identifiant RedGIFs en minuscules.
+     * Clé d'identification d'un fichier déjà téléchargé.
+     * "Titre [abc123].mp4" -> "abc123" ; sinon (RedGIFs) l'identifiant en minuscules :
      * "NavyAdolescentRabbit.mp4", "NavyAdolescentRabbit (1).mp4" et
      * "NavyAdolescentRabbit-mobile.mp4" donnent tous "navyadolescentrabbit".
      */
-    fun keyOf(fileName: String): String =
-        fileName.lowercase()
+    fun keyOf(fileName: String): String {
+        BRACKET_ID.find(fileName)?.let { return it.groupValues[1].lowercase() }
+        return fileName.lowercase()
             .substringBeforeLast('.')
             .replace(Regex("""\s*\(\d+\)$"""), "")
             .removeSuffix("-mobile")
+    }
 
     private fun isMedia(f: File) = f.isFile && !f.name.endsWith(PART) && !f.name.startsWith(".")
 
     /** Clés des fichiers déjà présents dans le dossier (voir [keyOf]). */
-    fun existingKeys(context: Context, folder: String): Set<String> =
-        dir(context, folder).listFiles()?.filter(::isMedia)?.mapTo(HashSet()) { keyOf(it.name) } ?: emptySet()
+    fun existingKeys(context: Context, site: Site, folder: String): Set<String> =
+        dir(context, site, folder).listFiles()?.filter(::isMedia)?.mapTo(HashSet()) { keyOf(it.name) } ?: emptySet()
 
-    /** Les dossiers non vides : "Vidéos seules" d'abord, puis les collections par ordre alphabétique. */
-    fun folders(context: Context): List<Folder> {
-        val root = root(context)
+    /** Sites ayant au moins un fichier, dans l'ordre de l'énumération. */
+    fun sites(context: Context): List<SiteEntry> = Site.entries.mapNotNull { site ->
+        val all = allMedia(siteDir(context, site))
+        if (all.isEmpty()) null else SiteEntry(site, all.size, all.first())
+    }
+
+    /** Tous les fichiers d'un dossier et de ses sous-dossiers, du plus récent au plus ancien. */
+    fun allMedia(dir: File): List<File> =
+        dir.walkTopDown().filter(::isMedia).sortedByDescending { it.lastModified() }.toList()
+
+    /** Dossiers non vides d'un site : "Vidéos seules" d'abord, puis les collections par ordre alphabétique. */
+    fun folders(context: Context, site: Site): List<Folder> {
+        val root = siteDir(context, site)
         val result = ArrayList<Folder>()
         val singles = media(root).size
         if (singles > 0) result += Folder("", root, singles)
@@ -87,16 +155,25 @@ object Library {
 
     fun isImage(f: File) = f.extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "webp")
 
+    /** Site et dossier d'un fichier de la bibliothèque. */
+    fun locate(context: Context, file: File): Pair<Site, String>? {
+        val rel = runCatching { file.relativeTo(root(context)).path }.getOrNull() ?: return null
+        val parts = rel.split(File.separatorChar)
+        val site = Site.fromLabel(parts.firstOrNull()) ?: return null
+        return site to (if (parts.size >= 3) parts[1] else "")
+    }
+
     /** Écrit d'abord dans un fichier ".part", renommé seulement si le téléchargement est complet. */
     fun save(
         context: Context,
+        site: Site,
         folder: String,
         fileName: String,
         input: InputStream,
         totalBytes: Long,
         onProgress: (written: Long, total: Long) -> Unit,
     ): File {
-        val dir = dir(context, folder)
+        val dir = dir(context, site, folder)
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Impossible de créer le dossier ${label(folder)}")
         val target = uniqueFile(dir, fileName)
         val part = File(dir, target.name + PART)
@@ -106,6 +183,25 @@ object Library {
         } catch (e: Exception) {
             part.delete()
             throw e
+        }
+        return target
+    }
+
+    /** Range un fichier déjà complet (ex. vidéo réassemblée dans le cache) dans la bibliothèque. */
+    fun importFile(context: Context, site: Site, folder: String, fileName: String, src: File): File {
+        val dir = dir(context, site, folder)
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Impossible de créer le dossier ${label(folder)}")
+        val target = uniqueFile(dir, fileName)
+        if (!src.renameTo(target)) {
+            val part = File(dir, target.name + PART)
+            try {
+                src.inputStream().use { input -> FileOutputStream(part).use { input.copyTo(it, 64 * 1024) } }
+                if (!part.renameTo(target)) throw IOException("Impossible de finaliser ${target.name}")
+            } catch (e: Exception) {
+                part.delete()
+                throw e
+            }
+            src.delete()
         }
         return target
     }
@@ -125,23 +221,23 @@ object Library {
     }
 
     /**
-     * Suppression / déplacement demandé par l'utilisateur : si le fichier vient d'une collection,
+     * Suppression / déplacement demandé par l'utilisateur : si le fichier vient d'une collection RedGIFs,
      * il est noté comme exclu pour que la mise à jour ne le retélécharge pas.
      */
     fun removeByUser(context: Context, file: File) {
+        val location = locate(context, file)
         delete(context, file)
-        val parent = file.parentFile
-        if (parent != null && parent != root(context)) {
-            CollectionStore.exclude(context, parent.name, keyOf(file.name))
+        if (location != null && location.first == Site.REDGIFS && location.second.isNotEmpty()) {
+            CollectionStore.exclude(context, location.second, keyOf(file.name))
         }
     }
 
-    /** Supprime le dossier et oublie le lien de la collection correspondante. */
-    fun deleteFolder(context: Context, folder: Folder) {
+    /** Supprime le dossier ; pour une collection RedGIFs, oublie aussi son lien. */
+    fun deleteFolder(context: Context, site: Site, folder: Folder) {
         media(folder.dir).forEach { delete(context, it) }
         if (!folder.isSingles) {
             folder.dir.deleteRecursively()
-            CollectionStore.forgetFolder(context, folder.name)
+            if (site == Site.REDGIFS) CollectionStore.forgetFolder(context, folder.name)
         }
     }
 
@@ -205,8 +301,8 @@ object Library {
         for ((id, name, folder) in items) {
             val uri = ContentUris.withAppendedId(collection, id)
             try {
-                if (keyOf(name) !in existingKeys(context, folder)) {
-                    resolver.openInputStream(uri)?.use { input -> save(context, folder, name, input, -1) { _, _ -> } }
+                if (keyOf(name) !in existingKeys(context, Site.REDGIFS, folder)) {
+                    resolver.openInputStream(uri)?.use { input -> save(context, Site.REDGIFS, folder, name, input, -1) { _, _ -> } }
                         ?: continue
                 }
                 resolver.delete(uri, null, null)
@@ -232,8 +328,8 @@ object Library {
         for ((folder, file) in sources) {
             if (!file.isFile) continue
             try {
-                if (keyOf(file.name) !in existingKeys(context, folder)) {
-                    file.inputStream().use { save(context, folder, file.name, it, file.length()) { _, _ -> } }
+                if (keyOf(file.name) !in existingKeys(context, Site.REDGIFS, folder)) {
+                    file.inputStream().use { save(context, Site.REDGIFS, folder, file.name, it, file.length()) { _, _ -> } }
                 }
                 file.delete()
                 android.media.MediaScannerConnection.scanFile(context, arrayOf(file.path), null, null)

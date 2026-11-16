@@ -40,15 +40,49 @@
                 style="?android:attr/borderlessButtonStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
                 android:text="@string/paste" />
+
+            <Button
+                android:id="@+id/addLinkButton"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/add_link"
+                android:minWidth="0dp"
+                android:text="+"
+                android:textSize="22sp" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/downloadButton"
+        <!-- Champs supplémentaires ajoutés avec "+" -->
+        <LinearLayout
+            android:id="@+id/extraLinks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="@string/download" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/qualityButton"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/downloadButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/download" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/libraryButton"

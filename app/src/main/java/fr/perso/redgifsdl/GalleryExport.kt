@@ -46,7 +46,7 @@ object GalleryExport {
 
     /** Demande confirmation puis déplace vers la galerie (en arrière-plan). */
     fun confirmMove(activity: Activity, file: File, onDone: () -> Unit) {
-        val dest = destination(file)
+        val dest = destination(activity, file)
         AlertDialog.Builder(activity)
             .setMessage(
                 "Déplacer ${file.name} dans la galerie ?\n\n" +
@@ -111,14 +111,13 @@ object GalleryExport {
     private fun baseDir(file: File) =
         if (Library.isImage(file)) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_MOVIES
 
-    /** Sous-dossier = nom de la collection (le dossier parent dans la bibliothèque), sinon l'album seul. */
-    private fun relativeDir(file: File): String {
-        val parent = file.parentFile
-        val inCollection = parent != null && parent.name != "library"
-        return if (inCollection) "${baseDir(file)}/$ALBUM/${parent!!.name}" else "${baseDir(file)}/$ALBUM"
+    /** Films/redDL/<Site>[/<collection>] (Images/… pour les images). */
+    private fun relativeDir(context: Context, file: File): String {
+        val (site, folder) = Library.locate(context, file) ?: (null to "")
+        return listOfNotNull(baseDir(file), ALBUM, site?.label, folder.ifEmpty { null }).joinToString("/")
     }
 
-    private fun destination(file: File) = relativeDir(file)
+    private fun destination(context: Context, file: File) = relativeDir(context, file)
         .replaceFirst(Environment.DIRECTORY_MOVIES, "Films")
         .replaceFirst(Environment.DIRECTORY_PICTURES, "Images")
 
@@ -127,12 +126,13 @@ object GalleryExport {
         "png" -> "image/png"
         "gif" -> "image/gif"
         "webp" -> "image/webp"
+        "ts" -> "video/mp2t"
         else -> "video/mp4"
     }
 
     /** @return le chemin lisible de la copie dans la galerie. */
     private fun copyToGallery(context: Context, file: File): String {
-        val relDir = relativeDir(file)
+        val relDir = relativeDir(context, file)
         val mime = mimeOf(file)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
@@ -156,7 +156,7 @@ object GalleryExport {
                 runCatching { resolver.delete(uri, null, null) }
                 throw e
             }
-            return destination(file) + "/" + file.name
+            return destination(context, file) + "/" + file.name
         } else {
             @Suppress("DEPRECATION")
             val dir = File(Environment.getExternalStorageDirectory(), relDir)
@@ -171,7 +171,7 @@ object GalleryExport {
                 throw e
             }
             MediaScannerConnection.scanFile(context, arrayOf(target.path), arrayOf(mime), null)
-            return destination(file) + "/" + target.name
+            return destination(context, file) + "/" + target.name
         }
     }
 }
