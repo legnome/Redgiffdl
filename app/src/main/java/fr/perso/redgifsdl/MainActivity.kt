@@ -124,8 +124,7 @@ class MainActivity : Activity() {
             val moved = runCatching { Library.migrateFromDownloads(appContext) }.getOrDefault(0)
             if (moved > 0) DownloadState.update {
                 if (!busy) {
-                    status = "$moved fichier(s) déplacé(s) de Téléchargements/RedGIFs vers la bibliothèque " +
-                        "privée (ils n'apparaissent plus dans la Galerie)."
+                    status = "$moved ancien(s) téléchargement(s) déplacé(s) dans la bibliothèque privée."
                     statusColor = R.color.ok
                 }
             }
@@ -198,8 +197,7 @@ class MainActivity : Activity() {
                 status = if (rawText.isBlank()) {
                     "✖ Colle d'abord un lien."
                 } else {
-                    "✖ Lien non reconnu.\nSites pris en charge : RedGIFs (vidéos et collections), XVideos, XNXX, " +
-                        "Pornhub, X/Twitter, Reddit, YouTube."
+                    "✖ Lien non pris en charge."
                 }
                 statusColor = R.color.error
             }
