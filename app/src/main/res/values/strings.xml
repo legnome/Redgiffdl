@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RedGIFs DL</string>
+    <string name="hint_url">https://www.redgifs.com/watch/…</string>
+    <string name="download">Télécharger</string>
+    <string name="paste">Coller</string>
+    <string name="intro">Colle un lien RedGIFs, ou utilise « Partager » depuis le navigateur. Les vidéos vont dans Téléchargements/RedGIFs.</string>
+</resources>
