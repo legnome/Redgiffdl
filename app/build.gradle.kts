@@ -22,8 +22,8 @@ android {
         applicationId = "fr.perso.redgifsdl"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "3.2"
+        versionCode = 9
+        versionName = "3.3"
     }
 
     buildTypes {

@@ -4,13 +4,13 @@ import android.app.Activity
 import android.os.Build
 import android.view.View
 import android.view.WindowInsets
-import android.view.WindowManager
 
 /**
- * Discrétion : écran masqué dans les applis récentes (aperçu noir) et captures d'écran bloquées.
+ * Discrétion : aperçu masqué dans les applis récentes (Android 13+).
+ * Les captures d'écran restent autorisées (pas de FLAG_SECURE).
  */
 fun Activity.applyPrivacy() {
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
 }
 
 /** Bord à bord (imposé à partir d'Android 15) : décale le contenu sous les barres système. */

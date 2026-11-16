@@ -187,7 +187,45 @@ class Downloader(
 
     /** Télécharge un élément selon son plan. @return le fichier et la hauteur choisie (si connue). */
     private fun fetch(site: Site, item: Resolved, report: (Float?, String) -> Unit): Pair<File, Int?> {
-        val variant = Extractors.pick(item.variants, quality)
+        val tried = ArrayList<String>()
+        val candidates = candidates(item.variants).take(MAX_CANDIDATES)
+        for ((i, variant) in candidates.withIndex()) {
+            try {
+                return fetchVariant(site, item, variant, report) to variant.height
+            } catch (e: RedgifsApi.HttpError) {
+                // Format refusé (ex. YouTube : jeton exigé, adresse expirée) : on essaie le suivant
+                if (e.code !in REFUSED || i == candidates.lastIndex) {
+                    if (tried.isEmpty()) throw e
+                    tried += label(variant) + " : HTTP ${e.code}"
+                    throw RedgifsApi.ApiException("Tous les formats ont été refusés :\n" + tried.joinToString("\n"))
+                }
+                tried += label(variant) + " : HTTP ${e.code}"
+                report(null, "Format refusé (HTTP ${e.code}), essai d'un autre…")
+            }
+        }
+        throw RedgifsApi.ApiException("Aucun format téléchargeable")
+    }
+
+    /** Ordre d'essai : le format choisi, puis les autres ≤ qualité demandée (meilleur d'abord), puis au-dessus. */
+    private fun candidates(variants: List<Variant>): List<Variant> {
+        val first = Extractors.pick(variants, quality)
+        val rest = variants.filter { it !== first }
+        val within = rest.filter { (it.height ?: 0) <= quality.maxHeight }.sortedByDescending { it.height ?: -1 }
+        val above = rest.filter { (it.height ?: 0) > quality.maxHeight }.sortedBy { it.height }
+        return listOf(first) + within + above
+    }
+
+    private fun label(v: Variant): String {
+        val kind = when (v.plan) {
+            is Plan.Hls -> "HLS"
+            is Plan.Split -> "vidéo+son"
+            else -> "MP4"
+        }
+        return listOfNotNull(v.source, v.height?.let { "${it}p" }, kind).joinToString(" ")
+    }
+
+    /** Télécharge une variante selon son plan. */
+    private fun fetchVariant(site: Site, item: Resolved, variant: Variant, report: (Float?, String) -> Unit): File {
         val q = variant.height?.let { "${it}p" } ?: "qualité d'origine"
         val tmpDir = File(context.cacheDir, "dl").apply { mkdirs() }
         fun tmp(ext: String) = File(tmpDir, UUID.randomUUID().toString() + "." + ext)
@@ -273,7 +311,7 @@ class Downloader(
                         RedgifsApi.retrying { Http.download(plan.videoUrl, plan.headers, video, onVideo) }
                     }
                     val audioUrl = plan.audioUrl
-                    val hasAudio = audioUrl != null && runCatching {
+                    val hasAudio = audioUrl != null && try {
                         val onAudio = { w: Long, t: Long -> report(0.75f + (fraction(w, t) ?: 0f) * 0.2f, "$q · son ${sizes(w, t)}") }
                         val audioSize = plan.audioSize
                         if (audioSize != null && audioSize > 0) {
@@ -281,7 +319,14 @@ class Downloader(
                         } else {
                             RedgifsApi.retrying { Http.download(audioUrl, plan.headers, audio, onAudio) }
                         }
-                    }.isSuccess
+                        true
+                    } catch (e: RedgifsApi.HttpError) {
+                        // Son refusé (ex. YouTube 403) : pas de vidéo muette, on passe au format suivant
+                        if (e.code in REFUSED) throw e
+                        false
+                    } catch (e: java.io.IOException) {
+                        false // ex. Reddit : piste son absente à l'origine
+                    }
                     report(null, "$q · assemblage…")
                     val name = Library.fileNameFor(item.title, item.id, "mp4")
                     if (!hasAudio) {
@@ -302,7 +347,7 @@ class Downloader(
             }
         }
         report(1f, q)
-        return file to variant.height
+        return file
     }
 
     private fun appendFailures(sb: StringBuilder, failed: List<String>) {
@@ -312,6 +357,10 @@ class Downloader(
     }
 
     companion object {
+        /** Codes HTTP qui font passer au format suivant. */
+        private val REFUSED = setOf(401, 403, 404, 410)
+        private const val MAX_CANDIDATES = 8
+
         fun describe(e: Exception): String = when (e) {
             is RedgifsApi.ApiException -> e.message ?: "Erreur API"
             is java.net.UnknownHostException -> "Pas de connexion Internet (ou site bloqué par ton opérateur)"

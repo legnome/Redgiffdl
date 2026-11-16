@@ -14,7 +14,8 @@ class Resolved(
     val variants: List<Variant>,
 )
 
-class Variant(val height: Int?, val plan: Plan)
+/** [source] : origine du format (ex. appli YouTube simulée), affichée si tout échoue. */
+class Variant(val height: Int?, val plan: Plan, val source: String? = null)
 
 /** Comment récupérer le fichier. */
 sealed class Plan {
@@ -489,6 +490,8 @@ object YoutubeExtractor : Extractor {
         val id = Links.youtubeId(url) ?: err("Lien YouTube sans identifiant de vidéo")
         val errors = ArrayList<String>()
         var visitorData: String? = null
+        var title: String? = null
+        val collected = ArrayList<Variant>()
         for (client in CLIENTS) {
             for (attempt in 0..1) {
                 val hadVisitor = visitorData != null
@@ -518,10 +521,14 @@ object YoutubeExtractor : Extractor {
                     errors += "${client.name} : accès au fichier refusé"
                     break
                 }
-                val title = details?.optString("title")?.takeIf { it.isNotBlank() }
-                return listOf(Resolved(id, title, variants))
+                if (title == null) title = details?.optString("title")?.takeIf { it.isNotBlank() }
+                collected += variants
+                break
             }
         }
+        // Formats de toutes les applis qui ont répondu : si l'un est refusé (403) au téléchargement,
+        // le suivant est essayé automatiquement (voir Downloader).
+        if (collected.isNotEmpty()) return listOf(Resolved(id, title, collected))
         val all = errors.joinToString("\n")
         err(
             when {
@@ -590,7 +597,10 @@ object YoutubeExtractor : Extractor {
     /** Formats retenus pour une réponse "streamingData" (avec la 1re appli de la liste). */
     internal fun variantsFor(sd: JSONObject): List<Variant> = variantsFrom(sd, CLIENTS.first())
 
-    private fun variantsFrom(sd: JSONObject, client: Client): List<Variant> {
+    private fun variantsFrom(sd: JSONObject, client: Client): List<Variant> =
+        rawVariants(sd, client).map { Variant(it.height, it.plan, client.name) }
+
+    private fun rawVariants(sd: JSONObject, client: Client): List<Variant> {
         val headers = mapOf("User-Agent" to client.userAgent)
         val result = ArrayList<Variant>()
 
