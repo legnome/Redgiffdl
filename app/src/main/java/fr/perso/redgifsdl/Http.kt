@@ -111,6 +111,55 @@ object Http {
         }
     }
 
+    /** POST d'un corps JSON, renvoie le texte de la réponse (même en cas d'erreur HTTP, avec le code). */
+    fun postJson(url: String, body: String, headers: Map<String, String> = emptyMap()): Pair<Int, String> {
+        val c = open(url, headers + ("Content-Type" to "application/json"), "POST")
+        try {
+            c.doOutput = true
+            c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            return code to (stream?.bufferedReader()?.use { it.readText() } ?: "")
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** Vérifie qu'une URL de média est vraiment accessible (lecture du premier octet). */
+    fun probe(url: String, headers: Map<String, String> = emptyMap()): Boolean = runCatching {
+        val c = open(url, headers + ("Range" to "bytes=0-0"))
+        try {
+            c.responseCode in 200..299
+        } finally {
+            c.disconnect()
+        }
+    }.getOrDefault(false)
+
+    /**
+     * Téléchargement par morceaux (requêtes Range de [chunk] octets), chaque morceau réessayé
+     * séparément : évite le bridage de débit de certains serveurs (YouTube) sur les longues requêtes.
+     */
+    fun downloadChunked(
+        url: String,
+        headers: Map<String, String>,
+        out: File,
+        total: Long,
+        chunk: Long = 5L * 1024 * 1024,
+        onProgress: (written: Long, total: Long) -> Unit,
+    ) {
+        FileOutputStream(out).use { output ->
+            var pos = 0L
+            while (pos < total) {
+                val end = minOf(pos + chunk, total) - 1
+                val bytes = RedgifsApi.retrying { getBytes(url, headers + ("Range" to "bytes=$pos-$end")) }
+                if (bytes.isEmpty()) throw IOException("Réponse vide à l'octet $pos")
+                output.write(bytes)
+                pos += bytes.size
+                onProgress(pos, total)
+            }
+        }
+    }
+
     fun hostOf(url: String) = runCatching { URL(url).host }.getOrDefault(url)
 
     /** Résout une URL relative (playlists HLS, MPD…). */

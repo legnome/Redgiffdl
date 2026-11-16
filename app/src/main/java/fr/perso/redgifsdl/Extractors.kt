@@ -21,7 +21,14 @@ sealed class Plan {
     data class Direct(val url: String, val headers: Map<String, String> = emptyMap(), val ext: String = "mp4") : Plan()
     data class Hls(val url: String, val audioUrl: String?, val headers: Map<String, String> = emptyMap()) : Plan()
     /** vidéo et audio séparés (Reddit), réunis ensuite */
-    data class Split(val videoUrl: String, val audioUrl: String?, val headers: Map<String, String> = emptyMap()) : Plan()
+    data class Split(
+        val videoUrl: String,
+        val audioUrl: String?,
+        val headers: Map<String, String> = emptyMap(),
+        /** tailles connues à l'avance (YouTube) : téléchargement par morceaux */
+        val videoSize: Long? = null,
+        val audioSize: Long? = null,
+    ) : Plan()
     /** vidéo RedGIFs (via l'API à jeton) */
     data class Redgifs(val id: String) : Plan()
 }
@@ -36,6 +43,7 @@ object Extractors {
         Site.PORNHUB -> PornhubExtractor
         Site.TWITTER -> TwitterExtractor
         Site.REDDIT -> RedditExtractor
+        Site.YOUTUBE -> YoutubeExtractor
         Site.REDGIFS -> throw IllegalArgumentException("RedGIFs passe par RedgifsApi")
     }
 
@@ -432,5 +440,194 @@ object RedditExtractor : Extractor {
             }
         }
         return videos to audio?.second
+    }
+}
+
+// ---------------------------------------------------------------- YouTube
+
+/**
+ * API interne de YouTube ("InnerTube", /youtubei/v1/player), en se présentant comme une appli officielle
+ * dont les adresses de téléchargement ne sont pas chiffrées (pas besoin d'exécuter le JavaScript de YouTube).
+ * Plusieurs applis sont essayées dans l'ordre, et l'adresse obtenue est testée avant d'être retenue.
+ *
+ * Formats : vidéo H.264 (jusqu'à 1080p) + son AAC, téléchargés séparément puis réunis en MP4 ;
+ * secours : MP4 tout-en-un 360p, ou flux HLS (appli iOS).
+ *
+ * YouTube change souvent ses protections : si ça casse, mettre à jour les versions de CLIENTS.
+ */
+object YoutubeExtractor : Extractor {
+
+    private class Client(
+        val name: String,
+        val id: Int,
+        val version: String,
+        val userAgent: String,
+        val extra: Map<String, Any>,
+    )
+
+    private val CLIENTS = listOf(
+        Client(
+            "ANDROID_VR", 28, "1.62.27",
+            "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            mapOf("deviceMake" to "Oculus", "deviceModel" to "Quest 3", "androidSdkVersion" to 32, "osName" to "Android", "osVersion" to "12L"),
+        ),
+        Client(
+            "IOS", 5, "20.10.4",
+            "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+            mapOf("deviceMake" to "Apple", "deviceModel" to "iPhone16,2", "osName" to "iPhone", "osVersion" to "18.3.2.22D82"),
+        ),
+        Client(
+            "ANDROID", 3, "20.10.38",
+            "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+            mapOf("androidSdkVersion" to 30, "osName" to "Android", "osVersion" to "11"),
+        ),
+    )
+
+    private const val PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+
+    override fun resolve(url: String): List<Resolved> {
+        val id = Links.youtubeId(url) ?: err("Lien YouTube sans identifiant de vidéo")
+        val errors = ArrayList<String>()
+        var visitorData: String? = null
+        for (client in CLIENTS) {
+            for (attempt in 0..1) {
+                val hadVisitor = visitorData != null
+                val json = try {
+                    player(client, id, visitorData)
+                } catch (e: Exception) {
+                    errors += "${client.name} : ${e.message ?: e.javaClass.simpleName}"
+                    break
+                }
+                json.optJSONObject("responseContext")?.optString("visitorData")?.takeIf { it.isNotBlank() }
+                    ?.let { visitorData = it }
+                val status = json.optJSONObject("playabilityStatus")
+                if (status?.optString("status") != "OK") {
+                    errors += "${client.name} : " + (status?.optString("reason")?.takeIf { it.isNotBlank() } ?: status?.optString("status") ?: "réponse vide")
+                    // Un 2e essai avec l'identifiant de visiteur obtenu peut lever la vérification "robot"
+                    if (attempt == 0 && !hadVisitor && visitorData != null) continue
+                    break
+                }
+                val details = json.optJSONObject("videoDetails")
+                if (details?.optBoolean("isLive") == true) err("Les directs YouTube ne sont pas pris en charge")
+                val variants = json.optJSONObject("streamingData")?.let { variantsFrom(it, client) } ?: emptyList()
+                if (variants.isEmpty()) {
+                    errors += "${client.name} : aucun format téléchargeable"
+                    break
+                }
+                if (!accessible(variants.first())) {
+                    errors += "${client.name} : accès au fichier refusé"
+                    break
+                }
+                val title = details?.optString("title")?.takeIf { it.isNotBlank() }
+                return listOf(Resolved(id, title, variants))
+            }
+        }
+        val all = errors.joinToString("\n")
+        err(
+            when {
+                listOf("bot", "robot", "Sign in", "Connectez-vous").any { all.contains(it, ignoreCase = true) } ->
+                    "YouTube demande de confirmer que tu n'es pas un robot : réessaie plus tard ou depuis un autre réseau (Wi-Fi / 4G)"
+                listOf("age", "âge").any { all.contains(it, ignoreCase = true) } ->
+                    "Vidéo YouTube soumise à une limite d'âge (connexion requise) : non prise en charge"
+                listOf("private", "privée", "unavailable", "indisponible").any { all.contains(it, ignoreCase = true) } ->
+                    "Vidéo YouTube privée ou indisponible"
+                else -> "YouTube a refusé le téléchargement :\n$all"
+            }
+        )
+    }
+
+    private fun player(c: Client, id: String, visitorData: String?): JSONObject {
+        val client = JSONObject()
+            .put("clientName", c.name)
+            .put("clientVersion", c.version)
+            .put("userAgent", c.userAgent)
+            .put("hl", "fr")
+            .put("gl", "FR")
+        c.extra.forEach { (k, v) -> client.put(k, v) }
+        visitorData?.let { client.put("visitorData", it) }
+        val body = JSONObject()
+            .put("context", JSONObject().put("client", client))
+            .put("videoId", id)
+            .put("contentCheckOk", true)
+            .put("racyCheckOk", true)
+            .put(
+                "playbackContext",
+                JSONObject().put("contentPlaybackContext", JSONObject().put("html5Preference", "HTML5_PREF_WANTS")),
+            )
+        val headers = HashMap<String, String>()
+        headers["User-Agent"] = c.userAgent
+        headers["X-YouTube-Client-Name"] = c.id.toString()
+        headers["X-YouTube-Client-Version"] = c.version
+        headers["Origin"] = "https://www.youtube.com"
+        visitorData?.let { headers["X-Goog-Visitor-Id"] = it }
+        val (code, text) = Http.postJson(PLAYER_URL, body.toString(), headers)
+        if (code !in 200..299) throw RedgifsApi.HttpError(code, "HTTP $code")
+        return JSONObject(text)
+    }
+
+    private class Fmt(val url: String, val mime: String, val height: Int?, val bitrate: Long, val size: Long?, val defaultAudio: Boolean)
+
+    private fun formats(arr: JSONArray?): List<Fmt> {
+        if (arr == null) return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val f = arr.optJSONObject(i) ?: return@mapNotNull null
+            // Pas d'URL directe = signature chiffrée (non géré) : format ignoré
+            val u = f.optString("url").takeIf { it.startsWith("http") } ?: return@mapNotNull null
+            if (f.optBoolean("isDrc")) return@mapNotNull null
+            val w = f.optInt("width", 0)
+            val h = f.optInt("height", 0)
+            Fmt(
+                u,
+                f.optString("mimeType"),
+                if (w > 0 && h > 0) minOf(w, h) else h.takeIf { it > 0 },
+                f.optLong("bitrate", 0),
+                f.optString("contentLength").toLongOrNull(),
+                f.optJSONObject("audioTrack")?.optBoolean("audioIsDefault", false) ?: true,
+            )
+        }
+    }
+
+    /** Formats retenus pour une réponse "streamingData" (avec la 1re appli de la liste). */
+    internal fun variantsFor(sd: JSONObject): List<Variant> = variantsFrom(sd, CLIENTS.first())
+
+    private fun variantsFrom(sd: JSONObject, client: Client): List<Variant> {
+        val headers = mapOf("User-Agent" to client.userAgent)
+        val result = ArrayList<Variant>()
+
+        val adaptive = formats(sd.optJSONArray("adaptiveFormats"))
+        val audio = adaptive.filter { it.mime.startsWith("audio/mp4") }
+            .sortedWith(compareByDescending<Fmt> { it.defaultAudio }.thenByDescending { it.bitrate })
+            .firstOrNull()
+        if (audio != null) {
+            // H.264 uniquement : réassemblage MP4 et lecture fiables sur tous les téléphones
+            adaptive.filter { it.mime.startsWith("video/mp4") && it.mime.contains("avc1") && it.height != null }
+                .groupBy { it.height }
+                .mapNotNull { (_, list) -> list.maxByOrNull { it.bitrate } }
+                .forEach { v -> result += Variant(v.height, Plan.Split(v.url, audio.url, headers, v.size, audio.size)) }
+        }
+        // MP4 tout-en-un (généralement 360p)
+        formats(sd.optJSONArray("formats")).filter { it.mime.startsWith("video/mp4") }
+            .forEach { result += Variant(it.height, Plan.Direct(it.url, headers)) }
+        // HLS (appli iOS)
+        sd.optString("hlsManifestUrl").takeIf { it.startsWith("http") }?.let { hls ->
+            runCatching { result += Extractors.hlsVariants(hls, headers) }
+        }
+        // À hauteur égale : vidéo+son séparés (meilleur débit) avant tout-en-un, puis HLS
+        return result.sortedWith(
+            compareByDescending<Variant> { it.height ?: -1 }.thenBy {
+                when (it.plan) {
+                    is Plan.Split -> 0
+                    is Plan.Direct -> 1
+                    else -> 2
+                }
+            }
+        )
+    }
+
+    /** Teste la variante principale (les adresses peuvent exiger un jeton que ce client n'a pas). */
+    private fun accessible(v: Variant): Boolean = when (val p = v.plan) {
+        is Plan.Split -> Http.probe(p.videoUrl, p.headers) && (p.audioUrl == null || Http.probe(p.audioUrl, p.headers))
+        is Plan.Direct -> Http.probe(p.url, p.headers)
+        else -> true
     }
 }

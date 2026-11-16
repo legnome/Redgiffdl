@@ -265,17 +265,21 @@ class Downloader(
                 val audio = tmp("m4a")
                 val out = tmp("mp4")
                 try {
-                    RedgifsApi.retrying {
-                        Http.download(plan.videoUrl, plan.headers, video) { w, t ->
-                            report((fraction(w, t) ?: 0f) * 0.75f, "$q · vidéo ${sizes(w, t)}")
-                        }
+                    val onVideo = { w: Long, t: Long -> report((fraction(w, t) ?: 0f) * 0.75f, "$q · vidéo ${sizes(w, t)}") }
+                    val videoSize = plan.videoSize
+                    if (videoSize != null && videoSize > 0) {
+                        Http.downloadChunked(plan.videoUrl, plan.headers, video, videoSize, onProgress = onVideo)
+                    } else {
+                        RedgifsApi.retrying { Http.download(plan.videoUrl, plan.headers, video, onVideo) }
                     }
                     val audioUrl = plan.audioUrl
                     val hasAudio = audioUrl != null && runCatching {
-                        RedgifsApi.retrying {
-                            Http.download(audioUrl, plan.headers, audio) { w, t ->
-                                report(0.75f + (fraction(w, t) ?: 0f) * 0.2f, "$q · son ${sizes(w, t)}")
-                            }
+                        val onAudio = { w: Long, t: Long -> report(0.75f + (fraction(w, t) ?: 0f) * 0.2f, "$q · son ${sizes(w, t)}") }
+                        val audioSize = plan.audioSize
+                        if (audioSize != null && audioSize > 0) {
+                            Http.downloadChunked(audioUrl, plan.headers, audio, audioSize, onProgress = onAudio)
+                        } else {
+                            RedgifsApi.retrying { Http.download(audioUrl, plan.headers, audio, onAudio) }
                         }
                     }.isSuccess
                     report(null, "$q · assemblage…")

@@ -199,7 +199,7 @@ class MainActivity : Activity() {
                     "✖ Colle d'abord un lien."
                 } else {
                     "✖ Lien non reconnu.\nSites pris en charge : RedGIFs (vidéos et collections), XVideos, XNXX, " +
-                        "Pornhub, X/Twitter, Reddit."
+                        "Pornhub, X/Twitter, Reddit, YouTube."
                 }
                 statusColor = R.color.error
             }

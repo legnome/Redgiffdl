@@ -57,9 +57,28 @@ object Links {
             host.contains("pornhub") && (uri.query ?: "").contains("viewkey=") -> Site.PORNHUB
             isTwitterHost(host) && TWEET_ID.containsMatchIn(path) -> Site.TWITTER
             isRedditHost(host) -> Site.REDDIT
+            youtubeId(url) != null -> Site.YOUTUBE
             else -> return null
         }
         return Target.Page(site, url)
+    }
+
+    private val YT_HOSTS = setOf("youtube.com", "music.youtube.com", "youtube-nocookie.com", "youtu.be")
+    private val YT_PATH_ID = Regex("""^/(?:shorts|live|embed|v|e)/([A-Za-z0-9_-]{11})""")
+    private val YT_QUERY_ID = Regex("""(?:^|&)v=([A-Za-z0-9_-]{11})""")
+
+    /** Identifiant (11 caractères) d'un lien YouTube : watch?v=, youtu.be/, /shorts/, /live/, /embed/. */
+    fun youtubeId(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase()?.removePrefix("www.")?.removePrefix("m.") ?: return null
+        if (host !in YT_HOSTS) return null
+        val path = uri.path ?: ""
+        if (host == "youtu.be") return Regex("""^/([A-Za-z0-9_-]{11})""").find(path)?.groupValues?.get(1)
+        YT_PATH_ID.find(path)?.let { return it.groupValues[1] }
+        if (path == "/watch" || path.isEmpty() || path == "/") {
+            return YT_QUERY_ID.find(uri.rawQuery ?: "")?.groupValues?.get(1)
+        }
+        return null
     }
 
     val TWEET_ID = Regex("""/status(?:es)?/(\d+)""")
