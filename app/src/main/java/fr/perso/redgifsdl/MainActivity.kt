@@ -16,7 +16,6 @@ import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import java.util.Locale
 import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
@@ -84,9 +83,12 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Un téléchargement est déjà en cours", Toast.LENGTH_SHORT).show()
             return
         }
-        val id = RedgifsApi.extractId(rawText)
-        if (id == null) {
-            showError("Lien RedGIFs invalide.\nExemple : https://www.redgifs.com/watch/xxxx")
+        val target = RedgifsApi.parse(rawText)
+        if (target == null) {
+            showError(
+                "Lien RedGIFs invalide.\nExemples :\nhttps://www.redgifs.com/watch/xxxx\n" +
+                    "https://www.redgifs.com/users/nom/collections/xxxx"
+            )
             return
         }
         if (needsLegacyPermission()) {
@@ -102,51 +104,41 @@ class MainActivity : Activity() {
         setStatus("Connexion à RedGIFs…", null)
 
         val appContext = applicationContext
+        val listener = object : Downloader.Listener {
+            override fun onStatus(text: String) = ui { setStatus(text, null) }
+            override fun onProgress(fraction: Float?) = ui {
+                if (fraction == null) {
+                    progress.isIndeterminate = true
+                } else {
+                    progress.isIndeterminate = false
+                    progress.progress = (fraction * progress.max).toInt()
+                }
+            }
+        }
         thread(name = "redgifs-download") {
             try {
-                val (video, token) = RedgifsApi.resolveVideo(id)
-                ui { setStatus("Téléchargement de ${video.fileName} (${if (video.isHd) "HD" else "SD"})…", null) }
-
-                val conn = RedgifsApi.openVideoStream(video, token)
-                val path = try {
-                    val total = conn.contentLengthLong
-                    conn.inputStream.use { input ->
-                        VideoSaver.save(appContext, video.fileName, input, total) { written, t ->
-                            ui { showProgress(written, t) }
-                        }
-                    }
-                } finally {
-                    conn.disconnect()
-                }
+                val outcome = Downloader(appContext, listener).run(target)
                 ui {
                     finishUi()
-                    setStatus("✔ Vidéo enregistrée${if (video.isHd) " (HD)" else " (SD, pas de HD dispo)"} :\n$path", R.color.ok)
-                    Toast.makeText(appContext, "Enregistré : $path", Toast.LENGTH_LONG).show()
+                    if (outcome.success) {
+                        setStatus("✔ ${outcome.message}", R.color.ok)
+                    } else {
+                        showError(outcome.message)
+                    }
+                    Toast.makeText(
+                        appContext,
+                        if (outcome.success) "RedGIFs DL : terminé" else "RedGIFs DL : terminé avec des erreurs",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
             } catch (e: Exception) {
-                val msg = when (e) {
-                    is RedgifsApi.ApiException -> e.message
-                    is java.net.UnknownHostException -> "Pas de connexion Internet"
-                    is java.net.SocketTimeoutException -> "Délai dépassé, réessaie"
-                    else -> "${e.javaClass.simpleName} : ${e.message}"
-                }
                 ui {
                     finishUi()
-                    showError(msg ?: "Erreur inconnue")
+                    showError(Downloader.describe(e))
                 }
             } finally {
                 running = false
             }
-        }
-    }
-
-    private fun showProgress(written: Long, total: Long) {
-        if (total > 0) {
-            progress.isIndeterminate = false
-            progress.progress = ((written * 100) / total).toInt()
-            setStatus("Téléchargement… ${mb(written)} / ${mb(total)}", null)
-        } else {
-            setStatus("Téléchargement… ${mb(written)}", null)
         }
     }
 
@@ -168,8 +160,6 @@ class MainActivity : Activity() {
     }
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)
-
-    private fun mb(bytes: Long) = String.format(Locale.FRANCE, "%.1f Mo", bytes / 1_048_576.0)
 
     private fun hideKeyboard() {
         getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(urlInput.windowToken, 0)

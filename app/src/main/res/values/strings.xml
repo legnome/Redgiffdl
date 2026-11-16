@@ -4,5 +4,5 @@
     <string name="hint_url">https://www.redgifs.com/watch/…</string>
     <string name="download">Télécharger</string>
     <string name="paste">Coller</string>
-    <string name="intro">Colle un lien RedGIFs, ou utilise « Partager » depuis le navigateur. Les vidéos vont dans Téléchargements/RedGIFs.</string>
+    <string name="intro">Colle un lien RedGIFs (vidéo ou collection), ou utilise « Partager » depuis le navigateur. Les vidéos vont dans Téléchargements/RedGIFs, et chaque collection dans son propre sous-dossier. Les vidéos déjà téléchargées sont ignorées.</string>
 </resources>
