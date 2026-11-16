@@ -50,6 +50,14 @@
             android:layout_marginTop="12dp"
             android:text="@string/download" />
 
+        <Button
+            android:id="@+id/libraryButton"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/library_button" />
+
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"

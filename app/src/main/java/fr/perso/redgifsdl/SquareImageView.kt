@@ -1,0 +1,15 @@
+package fr.perso.redgifsdl
+
+import android.content.Context
+import android.util.AttributeSet
+import android.widget.ImageView
+
+/** ImageView carrée (hauteur = largeur), pour la grille de miniatures. */
+class SquareImageView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+) : ImageView(context, attrs) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, widthMeasureSpec)
+    }
+}

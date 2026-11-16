@@ -1,14 +1,10 @@
 package fr.perso.redgifsdl
 
-import android.Manifest
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -16,7 +12,7 @@ import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
@@ -25,12 +21,9 @@ class MainActivity : Activity() {
     private lateinit var progress: ProgressBar
     private lateinit var status: TextView
 
-    @Volatile
-    private var running = false
-    private var pendingAfterPermission: String? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyPrivacy()
         setContentView(R.layout.activity_main)
 
         urlInput = findViewById(R.id.urlInput)
@@ -38,17 +31,31 @@ class MainActivity : Activity() {
         progress = findViewById(R.id.progress)
         status = findViewById(R.id.status)
 
-        applySystemBarInsets(findViewById(R.id.root))
+        findViewById<View>(R.id.root).applySystemBarInsets()
 
         downloadButton.setOnClickListener { startDownload(urlInput.text.toString()) }
         findViewById<Button>(R.id.pasteButton).setOnClickListener { pasteFromClipboard() }
+        findViewById<Button>(R.id.libraryButton).setOnClickListener {
+            startActivity(Intent(this, LibraryActivity::class.java))
+        }
         urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 startDownload(urlInput.text.toString()); true
             } else false
         }
 
-        if (savedInstanceState == null) handleIntent(intent)
+        current = this
+        lastStatus?.let { (text, color) -> setStatus(text, color) }
+        if (busy) showBusyUi()
+        if (savedInstanceState == null) {
+            migrateOldDownloads()
+            handleIntent(intent)
+        }
+    }
+
+    override fun onDestroy() {
+        if (current === this) current = null
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -78,8 +85,25 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Les versions précédentes enregistraient dans Téléchargements/RedGIFs : on rapatrie en privé. */
+    private fun migrateOldDownloads() {
+        val appContext = applicationContext
+        worker.execute {
+            val moved = runCatching { Library.migrateFromDownloads(appContext) }.getOrDefault(0)
+            if (moved > 0) ui {
+                if (!busy) {
+                    it.setStatus(
+                        "$moved fichier(s) déplacé(s) de Téléchargements/RedGIFs vers la bibliothèque privée " +
+                            "(ils n'apparaissent plus dans la Galerie).",
+                        R.color.ok,
+                    )
+                }
+            }
+        }
+    }
+
     private fun startDownload(rawText: String) {
-        if (running) {
+        if (busy) {
             Toast.makeText(this, "Un téléchargement est déjà en cours", Toast.LENGTH_SHORT).show()
             return
         }
@@ -91,58 +115,62 @@ class MainActivity : Activity() {
             )
             return
         }
-        if (needsLegacyPermission()) {
-            pendingAfterPermission = rawText
-            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQ_STORAGE)
-            return
-        }
         hideKeyboard()
-        running = true
-        downloadButton.isEnabled = false
-        progress.visibility = View.VISIBLE
-        progress.isIndeterminate = true
+        busy = true
+        showBusyUi()
         setStatus("Connexion à RedGIFs…", null)
 
         val appContext = applicationContext
         val listener = object : Downloader.Listener {
-            override fun onStatus(text: String) = ui { setStatus(text, null) }
-            override fun onProgress(fraction: Float?) = ui {
-                if (fraction == null) {
-                    progress.isIndeterminate = true
-                } else {
-                    progress.isIndeterminate = false
-                    progress.progress = (fraction * progress.max).toInt()
+            override fun onStatus(text: String) {
+                main.post {
+                    lastStatus = text to null
+                    current?.setStatus(text, null)
+                }
+            }
+
+            override fun onProgress(fraction: Float?) {
+                main.post {
+                    lastFraction = fraction
+                    current?.setProgressFraction(fraction)
                 }
             }
         }
-        thread(name = "redgifs-download") {
+        worker.execute {
             try {
                 val outcome = Downloader(appContext, listener).run(target)
-                ui {
-                    finishUi()
-                    if (outcome.success) {
-                        setStatus("✔ ${outcome.message}", R.color.ok)
-                    } else {
-                        showError(outcome.message)
-                    }
+                finishDownload(if (outcome.success) "✔ ${outcome.message}" else "✖ ${outcome.message}", outcome.success)
+                main.post {
                     Toast.makeText(
                         appContext,
-                        if (outcome.success) "RedGIFs DL : terminé" else "RedGIFs DL : terminé avec des erreurs",
+                        if (outcome.success) "redDL : terminé" else "redDL : terminé avec des erreurs",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
             } catch (e: Exception) {
-                ui {
-                    finishUi()
-                    showError(Downloader.describe(e))
-                }
-            } finally {
-                running = false
+                finishDownload("✖ ${Downloader.describe(e)}", false)
             }
         }
     }
 
+    private fun showBusyUi() {
+        downloadButton.isEnabled = false
+        progress.visibility = View.VISIBLE
+        setProgressFraction(lastFraction)
+    }
+
+    private fun setProgressFraction(fraction: Float?) {
+        lastFraction = fraction
+        if (fraction == null) {
+            progress.isIndeterminate = true
+        } else {
+            progress.isIndeterminate = false
+            progress.progress = (fraction * progress.max).toInt()
+        }
+    }
+
     private fun finishUi() {
+        lastFraction = null
         downloadButton.isEnabled = true
         progress.isIndeterminate = false
         progress.visibility = View.INVISIBLE
@@ -151,58 +179,45 @@ class MainActivity : Activity() {
     private fun showError(message: String) = setStatus("✖ $message", R.color.error)
 
     private fun setStatus(text: String, colorRes: Int?) {
+        lastStatus = text to colorRes
         status.text = text
-        if (colorRes != null) {
-            status.setTextColor(getColor(colorRes))
-        } else {
-            status.setTextColor(urlInput.currentTextColor)
-        }
+        status.setTextColor(if (colorRes != null) getColor(colorRes) else urlInput.currentTextColor)
     }
 
-    private fun ui(block: () -> Unit) = runOnUiThread(block)
+    /** Exécute [block] sur le thread UI avec l'écran actuellement affiché (survit à une réouverture). */
+    private fun ui(block: (MainActivity) -> Unit) {
+        main.post { current?.let(block) }
+    }
 
     private fun hideKeyboard() {
         getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(urlInput.windowToken, 0)
     }
 
-    // --- Android 8/9 uniquement : permission d'écriture ---
-
-    private fun needsLegacyPermission() =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_STORAGE) return
-        val pending = pendingAfterPermission
-        pendingAfterPermission = null
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && pending != null) {
-            startDownload(pending)
-        } else {
-            showError("Permission de stockage refusée : impossible d'enregistrer la vidéo")
-        }
-    }
-
-    // --- Bord à bord (imposé à partir d'Android 15) : éviter que la barre d'état masque le contenu ---
-
-    private fun applySystemBarInsets(root: View) {
-        val base = root.paddingTop
-        root.setOnApplyWindowInsetsListener { v, insets ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
-                v.setPadding(base + b.left, base + b.top, base + b.right, base + b.bottom)
-            } else {
-                @Suppress("DEPRECATION")
-                v.setPadding(
-                    base + insets.systemWindowInsetLeft, base + insets.systemWindowInsetTop,
-                    base + insets.systemWindowInsetRight, base + insets.systemWindowInsetBottom,
-                )
-            }
-            insets
-        }
-    }
-
     companion object {
-        private const val REQ_STORAGE = 1
+        /** Un seul thread : migration puis téléchargements, jamais en parallèle. */
+        private val worker = Executors.newSingleThreadExecutor()
+
+        private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+        /** Fin de téléchargement : état mémorisé même si aucun écran n'est ouvert à ce moment-là. */
+        private fun finishDownload(message: String, success: Boolean) {
+            main.post {
+                busy = false
+                lastFraction = null
+                lastStatus = message to (if (success) R.color.ok else R.color.error)
+                current?.let {
+                    it.finishUi()
+                    it.setStatus(message, if (success) R.color.ok else R.color.error)
+                }
+            }
+        }
+
+        @Volatile
+        private var busy = false
+
+        // État affiché, conservé si l'écran est recréé pendant un téléchargement (accès thread UI)
+        private var current: MainActivity? = null
+        private var lastStatus: Pair<String, Int?>? = null
+        private var lastFraction: Float? = null
     }
 }

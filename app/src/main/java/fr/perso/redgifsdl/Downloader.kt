@@ -3,7 +3,7 @@ package fr.perso.redgifsdl
 import android.content.Context
 import java.util.Locale
 
-/** Enchaîne API + enregistrement. À appeler depuis un thread d'arrière-plan. */
+/** Enchaîne API + enregistrement dans la bibliothèque privée. À appeler depuis un thread d'arrière-plan. */
 class Downloader(private val context: Context, private val listener: Listener) {
 
     interface Listener {
@@ -24,17 +24,17 @@ class Downloader(private val context: Context, private val listener: Listener) {
     private fun downloadSingle(id: String): Outcome {
         listener.onStatus("Connexion à RedGIFs…")
         listener.onProgress(null)
-        val folder = VideoSaver.folderFor(null)
-        if (id in VideoSaver.existingKeys(context, folder)) {
-            return Outcome("Déjà téléchargée : rien à faire.\n(Téléchargements/$folder)", true)
+        val folder = Library.folderFor(null)
+        if (id in Library.existingKeys(context, folder)) {
+            return Outcome("Déjà dans la bibliothèque (${Library.label(folder)}) : rien à faire.", true)
         }
         val media = api.gif(id)
-        val path = downloadOne(media, folder) { written, total ->
+        val file = downloadOne(media, folder) { written, total ->
             listener.onStatus("Téléchargement de ${media.fileName} (${quality(media)})… ${sizes(written, total)}")
             listener.onProgress(fraction(written, total))
         }
         val note = if (media.isHd) " (HD)" else " (SD, pas de HD dispo)"
-        return Outcome("Vidéo enregistrée$note :\n$path", true)
+        return Outcome("Vidéo ajoutée à la bibliothèque$note :\n${Library.label(folder)} › ${file.name}", true)
     }
 
     private fun downloadCollection(user: String, collectionId: String): Outcome {
@@ -45,14 +45,14 @@ class Downloader(private val context: Context, private val listener: Listener) {
         if (items.isEmpty()) return Outcome("La collection « ${info.name} » est vide.", false)
 
         // Vérification AVANT téléchargement : ce qui est déjà dans le dossier de la collection est ignoré.
-        val folder = VideoSaver.folderFor(info.name)
-        val existing = VideoSaver.existingKeys(context, folder)
+        val folder = Library.folderFor(info.name)
+        val existing = Library.existingKeys(context, folder)
         val (already, todo) = items.partition { it.id.lowercase() in existing }
 
         val header = "Collection « ${info.name} » : ${items.size} vidéo(s), " +
             "${already.size} déjà téléchargée(s), ${todo.size} à télécharger"
         if (todo.isEmpty()) {
-            return Outcome("$header.\nTout est déjà dans Téléchargements/$folder", true)
+            return Outcome("$header.\nTout est déjà dans la bibliothèque.", true)
         }
 
         val failed = ArrayList<String>()
@@ -83,16 +83,20 @@ class Downloader(private val context: Context, private val listener: Listener) {
             sb.append("\n• ").append(failed.size).append(" en échec :")
             failed.forEach { sb.append("\n   - ").append(it) }
         }
-        sb.append("\n\nDossier : Téléchargements/").append(folder)
+        sb.append("\n\nBibliothèque › ").append(Library.label(folder))
         return Outcome(sb.toString(), failed.isEmpty())
     }
 
-    private fun downloadOne(media: RedgifsApi.Media, folder: String, onProgress: (Long, Long) -> Unit): String {
+    private fun downloadOne(
+        media: RedgifsApi.Media,
+        folder: String,
+        onProgress: (Long, Long) -> Unit,
+    ): java.io.File {
         val conn = api.openStream(media)
         try {
             val total = conn.contentLengthLong
             return conn.inputStream.use { input ->
-                VideoSaver.save(context, folder, media.fileName, media.mimeType, input, total, onProgress)
+                Library.save(context, folder, media.fileName, input, total, onProgress)
             }
         } finally {
             conn.disconnect()

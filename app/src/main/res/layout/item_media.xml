@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <fr.perso.redgifsdl.SquareImageView
+        android:id="@+id/thumb"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#33888888"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <TextView
+        android:id="@+id/imageBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="4dp"
+        android:background="#99000000"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:text="IMG"
+        android:textColor="#FFFFFF"
+        android:textSize="10sp"
+        android:visibility="gone" />
+</FrameLayout>

@@ -2,16 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Uniquement pour Android 8 et 9 : à partir d'Android 10, MediaStore n'a besoin d'aucune permission. -->
+    <!-- Android 8/9 uniquement : sert seulement à rapatrier les anciens fichiers de Téléchargements/RedGIFs
+         (déjà accordée si tu avais utilisé une version précédente ; jamais redemandée). -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- allowBackup=false : la bibliothèque privée n'est pas envoyée dans la sauvegarde Google. -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
 
         <activity
@@ -47,5 +49,17 @@
                 <data android:pathPattern="/users/.*/collections/.*" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LibraryActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".PlayerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:theme="@style/PlayerTheme" />
     </application>
 </manifest>

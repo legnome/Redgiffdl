@@ -6,17 +6,30 @@ android {
     namespace = "fr.perso.redgifsdl"
     compileSdk = 37
 
+    // Clé fixe versionnée dans le dépôt : chaque nouvelle version s'installe par-dessus
+    // l'ancienne (sinon Android exige une désinstallation, qui effacerait la bibliothèque privée).
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("signing/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
+        // Ne pas changer applicationId : sinon Android la verrait comme une autre appli.
         applicationId = "fr.perso.redgifsdl"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -26,4 +39,4 @@ android {
     }
 }
 
-// Aucune dépendance externe : HttpURLConnection + un thread, API Android du framework uniquement.
+// Aucune dépendance externe : HttpURLConnection + threads, API Android du framework uniquement.

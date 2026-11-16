@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RedGIFs DL</string>
+    <string name="app_name">redDL</string>
     <string name="hint_url">https://www.redgifs.com/watch/…</string>
     <string name="download">Télécharger</string>
     <string name="paste">Coller</string>
-    <string name="intro">Colle un lien RedGIFs (vidéo ou collection), ou utilise « Partager » depuis le navigateur. Les vidéos vont dans Téléchargements/RedGIFs, et chaque collection dans son propre sous-dossier. Les vidéos déjà téléchargées sont ignorées.</string>
+    <string name="library">Bibliothèque</string>
+    <string name="library_button">Ma bibliothèque</string>
+    <string name="library_empty">Aucune vidéo pour l\'instant.\nTélécharge une vidéo ou une collection depuis l\'écran principal.</string>
+    <string name="intro">Colle un lien RedGIFs (vidéo ou collection), ou utilise « Partager » depuis le navigateur. Les vidéos sont rangées dans la bibliothèque privée de l\'appli (invisible dans la Galerie), une collection = un dossier. Les vidéos déjà téléchargées sont ignorées.</string>
 </resources>
