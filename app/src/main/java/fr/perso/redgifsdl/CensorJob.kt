@@ -23,10 +23,10 @@ import java.util.UUID
 object CensorJob {
 
     /**
-     * Réglages de legnome, sauf la taille des rectangles : réduite d'au moins 50 % en largeur et en hauteur
-     * par rapport à legnome (130 % -> 60 % de la zone détectée, toujours centrés) : 1 + 2 * padding = 0.6.
+     * Réglages de legnome, sauf la taille des rectangles : 65 % de la largeur et de la hauteur de la zone
+     * détectée (legnome : 130 %), toujours centrés : 1 + 2 * padding = 0.65.
      */
-    val OPTIONS = Nudity.Options(padding = -0.2)
+    val OPTIONS = Nudity.Options(padding = -0.175)
 
     @Volatile
     private var model: ByteArray? = null

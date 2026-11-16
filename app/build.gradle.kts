@@ -22,8 +22,8 @@ android {
         applicationId = "fr.perso.redgifsdl"
         minSdk = 26
         targetSdk = 37
-        versionCode = 13
-        versionName = "4.1"
+        versionCode = 14
+        versionName = "4.2"
 
         // ONNX Runtime embarque du code natif : uniquement les téléphones ARM 64 bits (tous les récents),
         // pour ne pas alourdir l'APK de 3 autres architectures.
