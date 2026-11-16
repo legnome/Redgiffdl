@@ -54,28 +54,43 @@ class DownloadService : Service() {
         lastStartId = startId
         // Doit être appelé rapidement après startForegroundService(), même si le lien est invalide.
         startInForeground()
+        // Censure d'un fichier de la bibliothèque (même file d'attente que les téléchargements)
+        val censorPath = intent?.takeIf { it.action == ACTION_CENSOR }?.getStringExtra(EXTRA_PATH)
+        if (censorPath != null) {
+            enqueue("Censure", "Censure en cours") { listener -> CensorJob.run(this, java.io.File(censorPath), listener) }
+            return START_NOT_STICKY
+        }
         val target = intent?.getStringExtra(EXTRA_TEXT)?.let(Links::parse)
         val quality = Quality.fromName(intent?.getStringExtra(EXTRA_QUALITY))
         if (target == null) {
             stopIfIdle()
             return START_NOT_STICKY
         }
+        val label = when (target) {
+            is Links.Target.RedgifsCollection -> "Collection ${target.id}"
+            is Links.Target.RedgifsSingle -> "RedGIFs ${target.id}"
+            is Links.Target.Page -> target.site.label
+        }
+        enqueue(label, "Connexion…") { listener -> Downloader(this, listener, quality).run(target) }
+        return START_NOT_STICKY
+    }
+
+    private fun enqueue(label: String, firstText: String, work: (Downloader.Listener) -> Downloader.Outcome) {
         val count = pending.incrementAndGet()
         DownloadState.update {
             busy = true
             queued = count - 1
         }
-        executor.execute { runJob(target, quality) }
-        return START_NOT_STICKY
+        executor.execute { runJob(label, firstText, work) }
     }
 
-    private fun runJob(target: Links.Target, quality: Quality) {
+    private fun runJob(label: String, firstText: String, work: (Downloader.Listener) -> Downloader.Outcome) {
         DownloadState.update {
-            status = "Connexion…"
+            status = firstText
             statusColor = null
             fraction = null
         }
-        progressText = "Connexion…"
+        progressText = firstText
         updateProgressNotification(null, force = true)
 
         val listener = object : Downloader.Listener {
@@ -96,15 +111,13 @@ class DownloadService : Service() {
         }
 
         var (message, success, short) = try {
-            val outcome = Downloader(this, listener, quality).run(target)
+            val outcome = work(listener)
             Triple((if (outcome.success) "✔ " else "✖ ") + outcome.message, outcome.success, outcome.short)
         } catch (e: Exception) {
-            val label = when (target) {
-                is Links.Target.RedgifsCollection -> "Collection ${target.id}"
-                is Links.Target.RedgifsSingle -> "RedGIFs ${target.id}"
-                is Links.Target.Page -> target.site.label
-            }
-            Triple("✖ ${Downloader.describe(e)}", false, "$label : ${Downloader.describe(e)}")
+            Triple("✖ $label : ${Downloader.describe(e)}", false, "$label : ${Downloader.describe(e)}")
+        } catch (e: UnsatisfiedLinkError) {
+            // Bibliothèque native absente (téléphone non ARM 64 bits)
+            Triple("✖ $label : non disponible sur ce téléphone", false, "$label : non disponible")
         }
         synchronized(batch) { batch += short to success }
         val left = pending.decrementAndGet()
@@ -248,11 +261,20 @@ class DownloadService : Service() {
 
     companion object {
         const val EXTRA_TEXT = "text"
+        const val EXTRA_PATH = "path"
+        const val ACTION_CENSOR = "fr.perso.redgifsdl.CENSOR"
         const val EXTRA_QUALITY = "quality"
         private const val CHANNEL_PROGRESS = "progress"
         private const val CHANNEL_DONE = "done"
         private const val NOTIF_PROGRESS = 1
         private const val NOTIF_DONE = 2
+
+        /** Crée une copie censurée d'un fichier de la bibliothèque (en arrière-plan). */
+        fun startCensor(context: Context, file: java.io.File) {
+            context.startForegroundService(
+                Intent(context, DownloadService::class.java).setAction(ACTION_CENSOR).putExtra(EXTRA_PATH, file.path)
+            )
+        }
 
         fun start(context: Context, text: String, quality: Quality = Quality.MAX) {
             context.startForegroundService(

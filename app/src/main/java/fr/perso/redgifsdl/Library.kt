@@ -217,6 +217,7 @@ object Library {
 
     fun delete(context: Context, file: File) {
         file.delete()
+        File(file.parentFile, ".${file.name}.zones.json").delete() // zones de censure (CensorJob)
         Thumbs.forget(context, file)
     }
 

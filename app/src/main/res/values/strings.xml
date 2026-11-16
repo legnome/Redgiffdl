@@ -16,6 +16,7 @@
     <string name="update">⟳ Mettre à jour</string>
     <string name="delete">🗑 Supprimer</string>
     <string name="move_to_gallery">🖼 Galerie</string>
+    <string name="censor">⬛ Censure</string>
     <string name="library_empty">Aucune vidéo pour l\'instant.
 Télécharge une vidéo depuis l\'écran principal.</string>
 </resources>

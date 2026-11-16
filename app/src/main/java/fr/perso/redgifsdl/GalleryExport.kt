@@ -58,12 +58,33 @@ object GalleryExport {
             .show()
     }
 
+    /** Demande confirmation puis lance la censure (copie avec carrés noirs) en arrière-plan. */
+    fun confirmCensor(activity: Activity, file: File) {
+        AlertDialog.Builder(activity)
+            .setTitle("Censurer")
+            .setMessage(
+                "Créer une copie de ${file.name} avec des carrés noirs sur les parties intimes détectées ?\n\n" +
+                    "L'original est conservé. L'analyse se fait en arrière-plan (compte quelques minutes " +
+                    "pour une vidéo d'une minute). La détection automatique peut rater des zones."
+            )
+            .setPositiveButton("Censurer") { _, _ ->
+                DownloadService.startCensor(activity, file)
+                Toast.makeText(activity, "Censure lancée (suivi sur l'écran principal)", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
     /** Menu de l'appui long dans la grille. */
     fun showMenu(activity: Activity, file: File, onDone: () -> Unit) {
         AlertDialog.Builder(activity)
             .setTitle(file.name)
-            .setItems(arrayOf("Déplacer dans la galerie", "Supprimer")) { _, which ->
-                if (which == 0) confirmMove(activity, file, onDone) else confirmDelete(activity, file, onDone)
+            .setItems(arrayOf("Déplacer dans la galerie", "Censurer (copie)", "Supprimer")) { _, which ->
+                when (which) {
+                    0 -> confirmMove(activity, file, onDone)
+                    1 -> confirmCensor(activity, file)
+                    else -> confirmDelete(activity, file, onDone)
+                }
             }
             .show()
     }

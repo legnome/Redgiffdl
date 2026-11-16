@@ -47,6 +47,9 @@ class PlayerActivity : Activity() {
         findViewById<View>(R.id.deleteButton).setOnClickListener {
             current()?.let { GalleryExport.confirmDelete(this, it) { removeCurrent() } }
         }
+        findViewById<View>(R.id.censorButton).setOnClickListener {
+            current()?.let { GalleryExport.confirmCensor(this, it) }
+        }
         findViewById<View>(R.id.moveButton).setOnClickListener {
             current()?.let { GalleryExport.confirmMove(this, it) { removeCurrent() } }
         }
