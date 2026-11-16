@@ -18,8 +18,11 @@ object Remux {
     private class Track(val extractor: MediaExtractor, val muxIndex: Int)
 
     /** Prend la première piste vidéo et la première piste audio trouvées dans [inputs]. */
-    fun mux(inputs: List<File>, output: File) {
-        val muxer = MediaMuxer(output.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    fun mux(inputs: List<File>, output: File, webm: Boolean = false) {
+        val muxer = MediaMuxer(
+            output.path,
+            if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
+        )
         val tracks = ArrayList<Track>()
         var started = false
         try {

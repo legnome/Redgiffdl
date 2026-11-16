@@ -187,24 +187,42 @@ class Downloader(
 
     /** Télécharge un élément selon son plan. @return le fichier et la hauteur choisie (si connue). */
     private fun fetch(site: Site, item: Resolved, report: (Float?, String) -> Unit): Pair<File, Int?> {
+        waitUntilAvailable(item, report)
         val tried = ArrayList<String>()
-        val candidates = candidates(item.variants).take(MAX_CANDIDATES)
-        for ((i, variant) in candidates.withIndex()) {
+        // Source + type déjà refusés : inutile d'essayer leurs autres qualités (même cause, ex. jeton YouTube)
+        val refusedKinds = HashSet<String>()
+        var attempts = 0
+        for (variant in candidates(item.variants)) {
+            if (kindKey(variant) in refusedKinds) continue
+            if (attempts++ >= MAX_CANDIDATES) break
             try {
                 return fetchVariant(site, item, variant, report) to variant.height
             } catch (e: RedgifsApi.HttpError) {
                 // Format refusé (ex. YouTube : jeton exigé, adresse expirée) : on essaie le suivant
-                if (e.code !in REFUSED || i == candidates.lastIndex) {
-                    if (tried.isEmpty()) throw e
-                    tried += label(variant) + " : HTTP ${e.code}"
-                    throw RedgifsApi.ApiException("Tous les formats ont été refusés :\n" + tried.joinToString("\n"))
-                }
+                if (e.code !in REFUSED && tried.isEmpty()) throw e
                 tried += label(variant) + " : HTTP ${e.code}"
+                if (e.code !in REFUSED) break
+                refusedKinds += kindKey(variant)
                 report(null, "Format refusé (HTTP ${e.code}), essai d'un autre…")
             }
         }
-        throw RedgifsApi.ApiException("Aucun format téléchargeable")
+        val details = if (item.notes.isEmpty()) "" else "\n\nAutres refus :\n" + item.notes.joinToString("\n")
+        throw RedgifsApi.ApiException(
+            (if (tried.isEmpty()) "Aucun format téléchargeable" else "Tous les formats ont été refusés :\n" + tried.joinToString("\n")) + details
+        )
     }
+
+    /** Pub YouTube d'avant-vidéo : les fichiers ne sont servis qu'une fois sa durée écoulée. */
+    private fun waitUntilAvailable(item: Resolved, report: (Float?, String) -> Unit) {
+        while (true) {
+            val left = item.availableAt - System.currentTimeMillis()
+            if (left <= 0) return
+            report(null, "Attente imposée par YouTube (pub) : ${(left + 999) / 1000} s…")
+            Thread.sleep(minOf(left, 1000L))
+        }
+    }
+
+    private fun kindKey(v: Variant) = "${v.source}|${v.plan.javaClass.simpleName}"
 
     /** Ordre d'essai : le format choisi, puis les autres ≤ qualité demandée (meilleur d'abord), puis au-dessus. */
     private fun candidates(variants: List<Variant>): List<Variant> {
@@ -218,7 +236,7 @@ class Downloader(
     private fun label(v: Variant): String {
         val kind = when (v.plan) {
             is Plan.Hls -> "HLS"
-            is Plan.Split -> "vidéo+son"
+            is Plan.Split -> if (v.plan.container == "webm") "VP9+Opus" else "vidéo+son"
             else -> "MP4"
         }
         return listOfNotNull(v.source, v.height?.let { "${it}p" }, kind).joinToString(" ")
@@ -299,9 +317,10 @@ class Downloader(
             }
 
             is Plan.Split -> {
-                val video = tmp("mp4")
-                val audio = tmp("m4a")
-                val out = tmp("mp4")
+                val ext = plan.container
+                val video = tmp(ext)
+                val audio = tmp(if (ext == "webm") "weba" else "m4a")
+                val out = tmp(ext)
                 try {
                     val onVideo = { w: Long, t: Long -> report((fraction(w, t) ?: 0f) * 0.75f, "$q · vidéo ${sizes(w, t)}") }
                     val videoSize = plan.videoSize
@@ -328,12 +347,12 @@ class Downloader(
                         false // ex. Reddit : piste son absente à l'origine
                     }
                     report(null, "$q · assemblage…")
-                    val name = Library.fileNameFor(item.title, item.id, "mp4")
+                    val name = Library.fileNameFor(item.title, item.id, ext)
                     if (!hasAudio) {
                         Library.importFile(context, site, "", name, video) // vidéo sans piste son à l'origine
                     } else {
                         try {
-                            Remux.mux(listOf(video, audio), out)
+                            Remux.mux(listOf(video, audio), out, webm = ext == "webm")
                             Library.importFile(context, site, "", name, out)
                         } catch (e: Exception) {
                             Library.importFile(context, site, "", name, video) // au pire : sans le son
@@ -359,7 +378,7 @@ class Downloader(
     companion object {
         /** Codes HTTP qui font passer au format suivant. */
         private val REFUSED = setOf(401, 403, 404, 410)
-        private const val MAX_CANDIDATES = 8
+        private const val MAX_CANDIDATES = 12
 
         fun describe(e: Exception): String = when (e) {
             is RedgifsApi.ApiException -> e.message ?: "Erreur API"

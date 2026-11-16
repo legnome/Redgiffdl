@@ -127,6 +127,7 @@ object GalleryExport {
         "gif" -> "image/gif"
         "webp" -> "image/webp"
         "ts" -> "video/mp2t"
+        "webm" -> "video/webm"
         else -> "video/mp4"
     }
 
