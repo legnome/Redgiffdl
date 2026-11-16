@@ -7,6 +7,7 @@
     <string name="paste">Coller</string>
     <string name="library">Bibliothèque</string>
     <string name="library_button">Ma bibliothèque</string>
+    <string name="update">⟳ Mettre à jour</string>
     <string name="delete">🗑 Supprimer</string>
     <string name="move_to_gallery">🖼 Galerie</string>
     <string name="library_empty">Aucune vidéo pour l\'instant.\nTélécharge une vidéo ou une collection depuis l\'écran principal.</string>

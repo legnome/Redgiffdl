@@ -36,7 +36,7 @@ object GalleryExport {
         AlertDialog.Builder(activity)
             .setMessage("Supprimer définitivement ${file.name} ?")
             .setPositiveButton("Supprimer") { _, _ ->
-                Library.delete(activity, file)
+                Library.removeByUser(activity, file)
                 Toast.makeText(activity, "Supprimé", Toast.LENGTH_SHORT).show()
                 onDone()
             }
@@ -98,7 +98,7 @@ object GalleryExport {
             val result = runCatching { copyToGallery(app, file) }
             main.post {
                 result.onSuccess { path ->
-                    Library.delete(app, file)
+                    Library.removeByUser(app, file)
                     Toast.makeText(app, "Déplacé dans la galerie : $path", Toast.LENGTH_LONG).show()
                     if (!activity.isDestroyed) onDone()
                 }.onFailure { e ->

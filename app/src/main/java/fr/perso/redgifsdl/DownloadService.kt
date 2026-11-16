@@ -38,6 +38,8 @@ class DownloadService : Service() {
     private lateinit var notifications: NotificationManager
     private var lastNotifUpdate = 0L
     private var progressText = "Préparation…"
+    // Résumés des liens traités depuis que la file était vide (pour un bilan groupé)
+    private val batch = ArrayList<Pair<String, Boolean>>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -92,13 +94,26 @@ class DownloadService : Service() {
             }
         }
 
-        val (message, success) = try {
+        var (message, success, short) = try {
             val outcome = Downloader(this, listener).run(target)
-            (if (outcome.success) "✔ " else "✖ ") + outcome.message to outcome.success
+            Triple((if (outcome.success) "✔ " else "✖ ") + outcome.message, outcome.success, outcome.short)
         } catch (e: Exception) {
-            "✖ ${Downloader.describe(e)}" to false
+            val label = (target as? RedgifsApi.Target.Collection)?.let { "Collection ${it.id}" } ?: "Vidéo"
+            Triple("✖ ${Downloader.describe(e)}", false, "$label : ${Downloader.describe(e)}")
         }
+        synchronized(batch) { batch += short to success }
         val left = pending.decrementAndGet()
+        if (left == 0) {
+            synchronized(batch) {
+                if (batch.size > 1) {
+                    // Plusieurs liens d'affilée (ex. bouton "Mettre à jour") : bilan de l'ensemble
+                    success = batch.all { it.second }
+                    message = (if (success) "✔ " else "✖ ") + "Terminé (${batch.size} liens) :\n" +
+                        batch.joinToString("\n") { (if (it.second) "• " else "✖ ") + it.first }
+                }
+                batch.clear()
+            }
+        }
         DownloadState.update {
             status = message
             statusColor = if (success) R.color.ok else R.color.error

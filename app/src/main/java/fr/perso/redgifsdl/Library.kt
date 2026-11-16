@@ -124,9 +124,25 @@ object Library {
         Thumbs.forget(context, file)
     }
 
+    /**
+     * Suppression / déplacement demandé par l'utilisateur : si le fichier vient d'une collection,
+     * il est noté comme exclu pour que la mise à jour ne le retélécharge pas.
+     */
+    fun removeByUser(context: Context, file: File) {
+        delete(context, file)
+        val parent = file.parentFile
+        if (parent != null && parent != root(context)) {
+            CollectionStore.exclude(context, parent.name, keyOf(file.name))
+        }
+    }
+
+    /** Supprime le dossier et oublie le lien de la collection correspondante. */
     fun deleteFolder(context: Context, folder: Folder) {
         media(folder.dir).forEach { delete(context, it) }
-        if (!folder.isSingles) folder.dir.deleteRecursively()
+        if (!folder.isSingles) {
+            folder.dir.deleteRecursively()
+            CollectionStore.forgetFolder(context, folder.name)
+        }
     }
 
     private fun copy(input: InputStream, out: OutputStream, total: Long, onProgress: (Long, Long) -> Unit) {

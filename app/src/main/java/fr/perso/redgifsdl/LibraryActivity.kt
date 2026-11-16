@@ -5,7 +5,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.Menu
 import android.view.MenuItem
+import android.widget.Toast
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
@@ -47,12 +49,53 @@ class LibraryActivity : Activity() {
         refresh()
     }
 
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        // À la racine : toutes les collections ; dans un dossier de collection : celle-ci seulement.
+        val f = folder
+        if (f == null || CollectionStore.forFolder(this, f) != null) {
+            menu.add(Menu.NONE, MENU_UPDATE, Menu.NONE, getString(R.string.update))
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+        }
+        return true
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == android.R.id.home) {
-            finish()
-            return true
+        when (item.itemId) {
+            android.R.id.home -> {
+                finish()
+                return true
+            }
+            MENU_UPDATE -> {
+                val f = folder
+                val targets = if (f == null) {
+                    CollectionStore.all(this)
+                } else {
+                    listOfNotNull(CollectionStore.forFolder(this, f))
+                }
+                updateCollections(targets)
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /**
+     * Revérifie les collections : chaque lien passe dans la file du service de téléchargement,
+     * qui ne télécharge que les vidéos manquantes (ni celles déjà présentes, ni celles exclues).
+     */
+    private fun updateCollections(targets: List<CollectionStore.Saved>) {
+        if (targets.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Aucune collection enregistrée. Télécharge une collection par son lien pour l'ajouter.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        targets.forEach { DownloadService.start(this, it.url) }
+        Toast.makeText(this, "Mise à jour de ${targets.size} collection(s)…", Toast.LENGTH_SHORT).show()
+        // Retour à l'écran principal pour suivre la progression
+        startActivity(Intent(this, MainActivity::class.java))
     }
 
     private fun refresh() {
@@ -68,21 +111,42 @@ class LibraryActivity : Activity() {
         folderList.visibility = if (folders.isEmpty()) View.GONE else View.VISIBLE
         empty.visibility = if (folders.isEmpty()) View.VISIBLE else View.GONE
         empty.setText(R.string.library_empty)
-        folderList.adapter = FolderAdapter(this, folders)
+        val linked = CollectionStore.all(this).mapTo(HashSet()) { it.folder }
+        folderList.adapter = FolderAdapter(this, folders, linked)
         folderList.setOnItemClickListener { _, _, pos, _ ->
             startActivity(Intent(this, LibraryActivity::class.java).putExtra(EXTRA_FOLDER, folders[pos].name))
         }
         folderList.setOnItemLongClickListener { _, _, pos, _ ->
             val fo = folders[pos]
-            confirm("Supprimer « ${fo.label} » et ses ${fo.count} fichier(s) ?") {
-                Library.deleteFolder(this, fo)
-                refresh()
+            val saved = if (fo.isSingles) null else CollectionStore.forFolder(this, fo.name)
+            val deleteFolder = {
+                confirm(
+                    "Supprimer « ${fo.label} » et ses ${fo.count} fichier(s) ?" +
+                        (if (saved != null) "\n\nLe lien de la collection sera aussi oublié." else "")
+                ) {
+                    Library.deleteFolder(this, fo)
+                    refresh()
+                }
+            }
+            if (saved == null) {
+                deleteFolder()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle(fo.label)
+                    .setItems(arrayOf("Mettre à jour cette collection", "Supprimer le dossier")) { _, which ->
+                        if (which == 0) updateCollections(listOf(saved)) else deleteFolder()
+                    }
+                    .show()
             }
             true
         }
     }
 
-    private class FolderAdapter(val context: Context, val folders: List<Library.Folder>) : BaseAdapter() {
+    private class FolderAdapter(
+        val context: Context,
+        val folders: List<Library.Folder>,
+        val linked: Set<String>,
+    ) : BaseAdapter() {
         override fun getCount() = folders.size
         override fun getItem(position: Int) = folders[position]
         override fun getItemId(position: Int) = position.toLong()
@@ -90,7 +154,8 @@ class LibraryActivity : Activity() {
             val v = convertView ?: View.inflate(context, R.layout.item_folder, null)
             val f = folders[position]
             v.findViewById<TextView>(R.id.title).text = f.label
-            v.findViewById<TextView>(R.id.subtitle).text = "${f.count} fichier(s)"
+            v.findViewById<TextView>(R.id.subtitle).text =
+                "${f.count} fichier(s)" + if (!f.isSingles && f.name in linked) " · ⟳ lien enregistré" else ""
             val thumb = v.findViewById<ImageView>(R.id.thumb)
             Library.media(f.dir).firstOrNull()?.let { Thumbs.load(context, it, thumb) } ?: thumb.setImageDrawable(null)
             return v
@@ -149,6 +214,7 @@ class LibraryActivity : Activity() {
     }
 
     companion object {
+        private const val MENU_UPDATE = 1
         const val EXTRA_FOLDER = "folder"
     }
 }

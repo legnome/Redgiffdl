@@ -14,7 +14,8 @@ class Downloader(private val context: Context, private val listener: Listener) {
         fun onItem(index: Int, total: Int) {}
     }
 
-    class Outcome(val message: String, val success: Boolean)
+    /** [short] : résumé d'une ligne, utilisé quand plusieurs collections sont mises à jour d'affilée. */
+    class Outcome(val message: String, val success: Boolean, val short: String = message)
 
     private val api = RedgifsApi.Session()
 
@@ -44,18 +45,36 @@ class Downloader(private val context: Context, private val listener: Listener) {
         listener.onStatus("Lecture de la collection…")
         listener.onProgress(null)
         val info = api.collectionInfo(user, collectionId)
-        val items = api.collectionItems(user, collectionId)
-        if (items.isEmpty()) return Outcome("La collection « ${info.name} » est vide.", false)
 
-        // Vérification AVANT téléchargement : ce qui est déjà dans le dossier de la collection est ignoré.
-        val folder = Library.folderFor(info.name)
+        // Collection déjà connue : on garde son dossier d'origine (même si elle a été renommée).
+        val saved = CollectionStore.get(context, user, collectionId)
+        val folder = saved?.folder ?: run {
+            val base = Library.folderFor(info.name)
+            // Deux collections différentes portant le même nom : dossiers distincts
+            val other = CollectionStore.forFolder(context, base)
+            if (other != null) "$base ($collectionId)" else base
+        }
+        CollectionStore.remember(context, user, collectionId, info.name, folder)
+
+        val items = api.collectionItems(user, collectionId)
+        if (items.isEmpty()) {
+            return Outcome("La collection « ${info.name} » est vide.", true, "« ${info.name} » : vide")
+        }
+
+        // Vérification AVANT téléchargement : ce qui est déjà dans le dossier est ignoré,
+        // ainsi que les vidéos que tu as supprimées ou déplacées dans la galerie.
         val existing = Library.existingKeys(context, folder)
-        val (already, todo) = items.partition { it.id.lowercase() in existing }
+        val excluded = saved?.excluded ?: emptySet()
+        val already = items.filter { it.id.lowercase() in existing }
+        val skipped = items.filter { it.id.lowercase() !in existing && it.id.lowercase() in excluded }
+        val todo = items.filter { it.id.lowercase() !in existing && it.id.lowercase() !in excluded }
 
         val header = "Collection « ${info.name} » : ${items.size} vidéo(s), " +
-            "${already.size} déjà téléchargée(s), ${todo.size} à télécharger"
+            "${already.size} déjà téléchargée(s)" +
+            (if (skipped.isNotEmpty()) ", ${skipped.size} exclue(s)" else "") +
+            ", ${todo.size} à télécharger"
         if (todo.isEmpty()) {
-            return Outcome("$header.\nTout est déjà dans la bibliothèque.", true)
+            return Outcome("$header.\nTout est déjà dans la bibliothèque.", true, "« ${info.name} » : à jour")
         }
 
         val failed = ArrayList<String>()
@@ -83,12 +102,16 @@ class Downloader(private val context: Context, private val listener: Listener) {
         sb.append("• ").append(ok).append(" téléchargée(s)")
         if (hdMissing > 0) sb.append(" (dont ").append(hdMissing).append(" en SD)")
         sb.append("\n• ").append(already.size).append(" déjà présente(s), ignorée(s)")
+        if (skipped.isNotEmpty()) {
+            sb.append("\n• ").append(skipped.size).append(" exclue(s) (supprimées ou déplacées par toi)")
+        }
         if (failed.isNotEmpty()) {
             sb.append("\n• ").append(failed.size).append(" en échec :")
             failed.forEach { sb.append("\n   - ").append(it) }
         }
         sb.append("\n\nBibliothèque › ").append(Library.label(folder))
-        return Outcome(sb.toString(), failed.isEmpty())
+        val short = "« ${info.name} » : $ok nouvelle(s)" + (if (failed.isNotEmpty()) ", ${failed.size} en échec" else "")
+        return Outcome(sb.toString(), failed.isEmpty(), short)
     }
 
     private fun downloadOne(
