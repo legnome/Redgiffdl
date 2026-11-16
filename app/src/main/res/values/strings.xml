@@ -6,6 +6,8 @@
     <string name="paste">Coller</string>
     <string name="library">Bibliothèque</string>
     <string name="library_button">Ma bibliothèque</string>
+    <string name="delete">🗑 Supprimer</string>
+    <string name="move_to_gallery">🖼 Galerie</string>
     <string name="library_empty">Aucune vidéo pour l\'instant.\nTélécharge une vidéo ou une collection depuis l\'écran principal.</string>
     <string name="intro">Colle un lien RedGIFs (vidéo ou collection), ou utilise « Partager » depuis le navigateur. Les vidéos sont rangées dans la bibliothèque privée de l\'appli (invisible dans la Galerie), une collection = un dossier. Les vidéos déjà téléchargées sont ignorées.</string>
 </resources>

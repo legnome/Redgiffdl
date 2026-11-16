@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.text.format.Formatter
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
@@ -14,7 +13,6 @@ import android.widget.GridView
 import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
-import android.widget.Toast
 import java.io.File
 
 /**
@@ -119,12 +117,7 @@ class LibraryActivity : Activity() {
             )
         }
         grid.setOnItemLongClickListener { _, _, pos, _ ->
-            val file = files[pos]
-            confirm("Supprimer ${file.name} (${Formatter.formatShortFileSize(this, file.length())}) ?") {
-                Library.delete(this, file)
-                Toast.makeText(this, "Supprimé", Toast.LENGTH_SHORT).show()
-                refresh()
-            }
+            GalleryExport.showMenu(this, files[pos]) { refresh() }
             true
         }
     }
@@ -140,6 +133,11 @@ class LibraryActivity : Activity() {
                 if (Library.isImage(files[position])) View.VISIBLE else View.GONE
             return v
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        GalleryExport.onPermissionResult(this, requestCode, grantResults)
     }
 
     private fun confirm(message: String, action: () -> Unit) {

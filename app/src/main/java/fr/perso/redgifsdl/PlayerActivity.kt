@@ -11,6 +11,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.ImageView
 import android.widget.MediaController
+import android.widget.TextView
 import android.widget.Toast
 import android.widget.VideoView
 import java.io.File
@@ -29,6 +30,9 @@ class PlayerActivity : Activity() {
     private var files: List<File> = emptyList()
     private var index = 0
     private var resumePosition = 0
+    private lateinit var topBar: View
+    private lateinit var fileName: TextView
+    private val hideBar = Runnable { topBar.visibility = View.GONE }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,6 +42,14 @@ class PlayerActivity : Activity() {
 
         videoView = findViewById(R.id.video)
         imageView = findViewById(R.id.image)
+        topBar = findViewById(R.id.topBar)
+        fileName = findViewById(R.id.fileName)
+        findViewById<View>(R.id.deleteButton).setOnClickListener {
+            current()?.let { GalleryExport.confirmDelete(this, it) { removeCurrent() } }
+        }
+        findViewById<View>(R.id.moveButton).setOnClickListener {
+            current()?.let { GalleryExport.confirmMove(this, it) { removeCurrent() } }
+        }
         val folder = intent.getStringExtra(LibraryActivity.EXTRA_FOLDER) ?: ""
         files = Library.media(Library.dir(this, folder))
         if (files.isEmpty()) {
@@ -65,6 +77,12 @@ class PlayerActivity : Activity() {
         }
 
         gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            // false : on ne consomme pas le toucher (les boutons et les contrôles de lecture le reçoivent aussi)
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                showBar()
+                return false
+            }
+
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 val dx = e2.x - (e1?.x ?: e2.x)
                 if (abs(dx) > 150 && abs(vx) > abs(vy)) {
@@ -87,6 +105,8 @@ class PlayerActivity : Activity() {
         if (files.isEmpty()) return
         index = ((i % files.size) + files.size) % files.size
         val file = files[index]
+        fileName.text = "${index + 1}/${files.size} · ${file.name}"
+        showBar()
         if (Library.isImage(file)) {
             videoView.stopPlayback()
             videoView.visibility = View.GONE
@@ -98,6 +118,30 @@ class PlayerActivity : Activity() {
             videoView.visibility = View.VISIBLE
             videoView.setVideoPath(file.path)
         }
+    }
+
+    private fun current(): File? = files.getOrNull(index)
+
+    /** Le fichier affiché a été supprimé ou déplacé : on passe au suivant (ou on quitte si c'était le dernier). */
+    private fun removeCurrent() {
+        val gone = current() ?: return
+        files = files.filter { it != gone }
+        if (files.isEmpty()) {
+            finish()
+        } else {
+            show(index.coerceAtMost(files.size - 1))
+        }
+    }
+
+    private fun showBar() {
+        topBar.visibility = View.VISIBLE
+        topBar.removeCallbacks(hideBar)
+        topBar.postDelayed(hideBar, 3500)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        GalleryExport.onPermissionResult(this, requestCode, grantResults)
     }
 
     private fun decodeForScreen(file: File) = runCatching {
