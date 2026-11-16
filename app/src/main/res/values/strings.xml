@@ -3,6 +3,7 @@
     <string name="app_name">redDL</string>
     <string name="hint_url">https://www.redgifs.com/watch/…</string>
     <string name="download">Télécharger</string>
+    <string name="download_queue">Ajouter à la file d\'attente</string>
     <string name="paste">Coller</string>
     <string name="library">Bibliothèque</string>
     <string name="library_button">Ma bibliothèque</string>

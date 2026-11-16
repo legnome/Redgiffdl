@@ -10,6 +10,8 @@ class Downloader(private val context: Context, private val listener: Listener) {
         fun onStatus(text: String)
         /** fraction entre 0 et 1, ou null pour une progression indéterminée */
         fun onProgress(fraction: Float?)
+        /** début du fichier n° index (0..total-1) */
+        fun onItem(index: Int, total: Int) {}
     }
 
     class Outcome(val message: String, val success: Boolean)
@@ -29,6 +31,7 @@ class Downloader(private val context: Context, private val listener: Listener) {
             return Outcome("Déjà dans la bibliothèque (${Library.label(folder)}) : rien à faire.", true)
         }
         val media = api.gif(id)
+        listener.onItem(0, 1)
         val file = downloadOne(media, folder) { written, total ->
             listener.onStatus("Téléchargement de ${media.fileName} (${quality(media)})… ${sizes(written, total)}")
             listener.onProgress(fraction(written, total))
@@ -60,6 +63,7 @@ class Downloader(private val context: Context, private val listener: Listener) {
         todo.forEachIndexed { index, media ->
             val label = "$header\n\n${index + 1}/${todo.size} : ${media.fileName} (${quality(media)})"
             listener.onStatus(label)
+            listener.onItem(index, todo.size)
             try {
                 downloadOne(media, folder) { written, total ->
                     listener.onStatus("$label\n${sizes(written, total)}")
@@ -91,11 +95,12 @@ class Downloader(private val context: Context, private val listener: Listener) {
         media: RedgifsApi.Media,
         folder: String,
         onProgress: (Long, Long) -> Unit,
-    ): java.io.File {
+    ): java.io.File = RedgifsApi.retrying {
+        // En cas d'échec, Library.save supprime le fichier partiel : chaque tentative repart de zéro.
         val conn = api.openStream(media)
         try {
             val total = conn.contentLengthLong
-            return conn.inputStream.use { input ->
+            conn.inputStream.use { input ->
                 Library.save(context, folder, media.fileName, input, total, onProgress)
             }
         } finally {

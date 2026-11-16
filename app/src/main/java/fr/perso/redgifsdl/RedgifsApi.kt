@@ -55,6 +55,24 @@ object RedgifsApi {
 
     data class CollectionInfo(val name: String, val count: Int)
 
+    /**
+     * Réessaie [block] sur erreur réseau passagère (coupure, délai dépassé, erreur serveur 5xx),
+     * avec une pause croissante. Les erreurs définitives de l'API (404, 401…) ne sont pas réessayées.
+     */
+    fun <T> retrying(attempts: Int = 3, block: () -> T): T {
+        var attempt = 1
+        while (true) {
+            try {
+                return block()
+            } catch (e: IOException) {
+                val transient = e !is ApiException || (e is HttpError && e.code >= 500)
+                if (!transient || attempt >= attempts) throw e
+            }
+            Thread.sleep(3000L * attempt)
+            attempt++
+        }
+    }
+
     private val COLLECTION_RE =
         Regex("""redgifs\.com/users/([^/?#\s]+)/collections/([A-Za-z0-9]+)""", RegexOption.IGNORE_CASE)
 
@@ -133,7 +151,9 @@ object RedgifsApi {
 
         private fun currentToken(): String = token ?: fetchTemporaryToken().also { token = it }
 
-        private fun getJson(path: String): JSONObject {
+        private fun getJson(path: String): JSONObject = retrying { getJsonOnce(path) }
+
+        private fun getJsonOnce(path: String): JSONObject {
             for (attempt in 0..1) {
                 val c = open(API + path, currentToken())
                 try {

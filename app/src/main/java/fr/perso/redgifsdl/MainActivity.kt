@@ -1,8 +1,11 @@
 package fr.perso.redgifsdl
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -14,6 +17,10 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
 
+/**
+ * Écran principal : saisie du lien et affichage de l'état.
+ * Le téléchargement lui-même tourne dans [DownloadService] (continue écran verrouillé).
+ */
 class MainActivity : Activity() {
 
     private lateinit var urlInput: EditText
@@ -44,9 +51,9 @@ class MainActivity : Activity() {
             } else false
         }
 
-        current = this
-        lastStatus?.let { (text, color) -> setStatus(text, color) }
-        if (busy) showBusyUi()
+        DownloadState.observer = { render() }
+        render()
+
         if (savedInstanceState == null) {
             migrateOldDownloads()
             handleIntent(intent)
@@ -54,8 +61,14 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (current === this) current = null
+        DownloadState.observer = null
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        DownloadState.observer = { render() }
+        render()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -88,105 +101,63 @@ class MainActivity : Activity() {
     /** Les versions précédentes enregistraient dans Téléchargements/RedGIFs : on rapatrie en privé. */
     private fun migrateOldDownloads() {
         val appContext = applicationContext
-        worker.execute {
+        migrationExecutor.execute {
             val moved = runCatching { Library.migrateFromDownloads(appContext) }.getOrDefault(0)
-            if (moved > 0) ui {
+            if (moved > 0) DownloadState.update {
                 if (!busy) {
-                    it.setStatus(
-                        "$moved fichier(s) déplacé(s) de Téléchargements/RedGIFs vers la bibliothèque privée " +
-                            "(ils n'apparaissent plus dans la Galerie).",
-                        R.color.ok,
-                    )
+                    status = "$moved fichier(s) déplacé(s) de Téléchargements/RedGIFs vers la bibliothèque " +
+                        "privée (ils n'apparaissent plus dans la Galerie)."
+                    statusColor = R.color.ok
                 }
             }
         }
     }
 
     private fun startDownload(rawText: String) {
-        if (busy) {
-            Toast.makeText(this, "Un téléchargement est déjà en cours", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val target = RedgifsApi.parse(rawText)
-        if (target == null) {
-            showError(
-                "Lien RedGIFs invalide.\nExemples :\nhttps://www.redgifs.com/watch/xxxx\n" +
+        if (RedgifsApi.parse(rawText) == null) {
+            DownloadState.update {
+                status = "✖ Lien RedGIFs invalide.\nExemples :\nhttps://www.redgifs.com/watch/xxxx\n" +
                     "https://www.redgifs.com/users/nom/collections/xxxx"
-            )
+                statusColor = R.color.error
+            }
             return
         }
         hideKeyboard()
-        busy = true
-        showBusyUi()
-        setStatus("Connexion à RedGIFs…", null)
-
-        val appContext = applicationContext
-        val listener = object : Downloader.Listener {
-            override fun onStatus(text: String) {
-                main.post {
-                    lastStatus = text to null
-                    current?.setStatus(text, null)
-                }
-            }
-
-            override fun onProgress(fraction: Float?) {
-                main.post {
-                    lastFraction = fraction
-                    current?.setProgressFraction(fraction)
-                }
-            }
+        requestNotificationPermissionOnce()
+        if (DownloadState.busy) {
+            Toast.makeText(this, "Ajouté à la file d'attente", Toast.LENGTH_SHORT).show()
         }
-        worker.execute {
-            try {
-                val outcome = Downloader(appContext, listener).run(target)
-                finishDownload(if (outcome.success) "✔ ${outcome.message}" else "✖ ${outcome.message}", outcome.success)
-                main.post {
-                    Toast.makeText(
-                        appContext,
-                        if (outcome.success) "redDL : terminé" else "redDL : terminé avec des erreurs",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            } catch (e: Exception) {
-                finishDownload("✖ ${Downloader.describe(e)}", false)
-            }
-        }
+        DownloadService.start(this, rawText)
     }
 
-    private fun showBusyUi() {
-        downloadButton.isEnabled = false
-        progress.visibility = View.VISIBLE
-        setProgressFraction(lastFraction)
+    /**
+     * Android 13+ : sans cette permission, le téléchargement fonctionne quand même,
+     * mais la notification de progression n'est pas affichée.
+     */
+    private fun requestNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        val prefs = getSharedPreferences("app", MODE_PRIVATE)
+        if (prefs.getBoolean("notif_asked", false)) return
+        prefs.edit().putBoolean("notif_asked", true).apply()
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
     }
 
-    private fun setProgressFraction(fraction: Float?) {
-        lastFraction = fraction
-        if (fraction == null) {
+    /** Affiche l'état courant (appelé à chaque changement). */
+    private fun render() {
+        val s = DownloadState
+        downloadButton.text = getString(if (s.busy) R.string.download_queue else R.string.download)
+        progress.visibility = if (s.busy) View.VISIBLE else View.INVISIBLE
+        val f = s.fraction
+        if (f == null) {
             progress.isIndeterminate = true
         } else {
             progress.isIndeterminate = false
-            progress.progress = (fraction * progress.max).toInt()
+            progress.progress = (f * progress.max).toInt()
         }
-    }
-
-    private fun finishUi() {
-        lastFraction = null
-        downloadButton.isEnabled = true
-        progress.isIndeterminate = false
-        progress.visibility = View.INVISIBLE
-    }
-
-    private fun showError(message: String) = setStatus("✖ $message", R.color.error)
-
-    private fun setStatus(text: String, colorRes: Int?) {
-        lastStatus = text to colorRes
-        status.text = text
-        status.setTextColor(if (colorRes != null) getColor(colorRes) else urlInput.currentTextColor)
-    }
-
-    /** Exécute [block] sur le thread UI avec l'écran actuellement affiché (survit à une réouverture). */
-    private fun ui(block: (MainActivity) -> Unit) {
-        main.post { current?.let(block) }
+        val text = s.status ?: ""
+        status.text = if (s.queued > 0) "$text\n\n(+${s.queued} lien(s) en attente)" else text
+        status.setTextColor(s.statusColor?.let { getColor(it) } ?: urlInput.currentTextColor)
     }
 
     private fun hideKeyboard() {
@@ -194,30 +165,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        /** Un seul thread : migration puis téléchargements, jamais en parallèle. */
-        private val worker = Executors.newSingleThreadExecutor()
-
-        private val main = android.os.Handler(android.os.Looper.getMainLooper())
-
-        /** Fin de téléchargement : état mémorisé même si aucun écran n'est ouvert à ce moment-là. */
-        private fun finishDownload(message: String, success: Boolean) {
-            main.post {
-                busy = false
-                lastFraction = null
-                lastStatus = message to (if (success) R.color.ok else R.color.error)
-                current?.let {
-                    it.finishUi()
-                    it.setStatus(message, if (success) R.color.ok else R.color.error)
-                }
-            }
-        }
-
-        @Volatile
-        private var busy = false
-
-        // État affiché, conservé si l'écran est recréé pendant un téléchargement (accès thread UI)
-        private var current: MainActivity? = null
-        private var lastStatus: Pair<String, Int?>? = null
-        private var lastFraction: Float? = null
+        private const val REQ_NOTIF = 7
+        private val migrationExecutor = Executors.newSingleThreadExecutor()
     }
 }
