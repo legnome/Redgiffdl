@@ -92,6 +92,15 @@
             android:layout_marginTop="4dp"
             android:text="@string/library_button" />
 
+        <!-- Affiche/masque la cible "Télécharger (redDL)" du menu Partager -->
+        <Switch
+            android:id="@+id/shareDirectSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp"
+            android:text="@string/share_direct_switch" />
+
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"

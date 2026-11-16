@@ -11,6 +11,8 @@
     <string name="remove_link">Retirer ce lien</string>
     <string name="library">Bibliothèque</string>
     <string name="library_button">Ma bibliothèque</string>
+    <string name="share_download_label">Télécharger (redDL)</string>
+    <string name="share_direct_switch">Partager = télécharger sans ouvrir l\'appli</string>
     <string name="update">⟳ Mettre à jour</string>
     <string name="delete">🗑 Supprimer</string>
     <string name="move_to_gallery">🖼 Galerie</string>

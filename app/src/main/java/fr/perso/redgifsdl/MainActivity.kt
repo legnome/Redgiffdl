@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
@@ -49,6 +50,11 @@ class MainActivity : Activity() {
         updateQualityButton()
         qualityButton.setOnClickListener { chooseQuality() }
         findViewById<Button>(R.id.addLinkButton).setOnClickListener { addLinkRow() }
+
+        // Réglage : cible "Télécharger (redDL)" dans le menu Partager (activée par défaut)
+        val shareSwitch = findViewById<Switch>(R.id.shareDirectSwitch)
+        shareSwitch.isChecked = ShareDownloadActivity.isEnabled(this)
+        shareSwitch.setOnCheckedChangeListener { _, checked -> ShareDownloadActivity.setEnabled(this, checked) }
 
         findViewById<View>(R.id.root).applySystemBarInsets()
 

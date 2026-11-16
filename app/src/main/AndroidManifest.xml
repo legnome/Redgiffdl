@@ -55,6 +55,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Menu Partager > "Télécharger (redDL)" : téléchargement en arrière-plan sans ouvrir l'appli.
+             Désactivable depuis l'écran principal (PackageManager.setComponentEnabledSetting). -->
+        <activity
+            android:name=".ShareDownloadActivity"
+            android:enabled="true"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/share_download_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/ShareTheme">
+            <intent-filter android:label="@string/share_download_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".LibraryActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
