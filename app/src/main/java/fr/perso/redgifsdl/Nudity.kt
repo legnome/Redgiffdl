@@ -51,6 +51,10 @@ object Nudity {
         val step: Int = 5,
         val threshold: Float = 0.4f,
         val labels: List<String> = DEFAULT_LABELS,
+        /**
+         * Marge relative de chaque côté (legnome : 0.15 -> zone = 130 % de la détection).
+         * Négative = rectangle plus petit que la détection, toujours centré dessus.
+         */
         val padding: Double = 0.15,
         val square: Boolean = false,
         /** null = step (comme legnome) */

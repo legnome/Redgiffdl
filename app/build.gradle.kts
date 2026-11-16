@@ -22,8 +22,8 @@ android {
         applicationId = "fr.perso.redgifsdl"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "4.0"
+        versionCode = 13
+        versionName = "4.1"
 
         // ONNX Runtime embarque du code natif : uniquement les téléphones ARM 64 bits (tous les récents),
         // pour ne pas alourdir l'APK de 3 autres architectures.
@@ -35,13 +35,6 @@ android {
     // Modèle NudeNet : stocké sans compression dans l'APK
     androidResources {
         noCompress += "onnx"
-    }
-
-    // Bibliothèque native d'ONNX Runtime (36 Mo) compressée dans l'APK : fichier à télécharger plus léger
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
     }
 
     buildTypes {

@@ -22,6 +22,12 @@ import java.util.UUID
  */
 object CensorJob {
 
+    /**
+     * Réglages de legnome, sauf la taille des rectangles : réduite d'au moins 50 % en largeur et en hauteur
+     * par rapport à legnome (130 % -> 60 % de la zone détectée, toujours centrés) : 1 + 2 * padding = 0.6.
+     */
+    val OPTIONS = Nudity.Options(padding = -0.2)
+
     @Volatile
     private var model: ByteArray? = null
 
@@ -36,7 +42,7 @@ object CensorJob {
     fun run(context: Context, file: File, listener: Downloader.Listener): Downloader.Outcome {
         if (!file.isFile) throw RedgifsApi.ApiException("Fichier introuvable")
         val (site, folder) = Library.locate(context, file) ?: throw RedgifsApi.ApiException("Fichier hors de la bibliothèque")
-        val opts = Nudity.Options()
+        val opts = OPTIONS
         listener.onStatus("Censure : chargement du modèle…")
         listener.onProgress(null)
         NudeDetector(modelBytes(context)).use { detector ->
