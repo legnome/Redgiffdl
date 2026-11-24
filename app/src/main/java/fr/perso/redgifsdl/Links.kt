@@ -58,6 +58,7 @@ object Links {
             isTwitterHost(host) && TWEET_ID.containsMatchIn(path) -> Site.TWITTER
             isRedditHost(host) -> Site.REDDIT
             youtubeId(url) != null -> Site.YOUTUBE
+            host.contains("eporner") && EPORNER_ID.containsMatchIn(path) -> Site.EPORNER
             else -> return null
         }
         return Target.Page(site, url)
@@ -80,6 +81,9 @@ object Links {
         }
         return null
     }
+
+    /** Eporner : /hd-porn/<id>/titre/, /embed/<id>, /video-<id>/titre/ */
+    val EPORNER_ID = Regex("""^/(?:(?:hd-porn|embed)/|video-)(\w+)""")
 
     val TWEET_ID = Regex("""/status(?:es)?/(\d+)""")
 

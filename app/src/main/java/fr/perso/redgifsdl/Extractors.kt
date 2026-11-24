@@ -51,6 +51,7 @@ object Extractors {
         Site.TWITTER -> TwitterExtractor
         Site.REDDIT -> RedditExtractor
         Site.YOUTUBE -> YoutubeExtractor
+        Site.EPORNER -> EpornerExtractor
         Site.REDGIFS -> throw IllegalArgumentException("RedGIFs passe par RedgifsApi")
     }
 
@@ -741,5 +742,75 @@ object YoutubeExtractor : Extractor {
         is Plan.Split -> Http.probe(p.videoUrl, p.headers) && (p.audioUrl == null || Http.probe(p.audioUrl, p.headers))
         is Plan.Direct -> Http.probe(p.url, p.headers)
         else -> true
+    }
+}
+
+// ---------------------------------------------------------------- Eporner
+
+/**
+ * Calqué sur l'extracteur Eporner de yt-dlp : la page contient un hash de 32 caractères hexadécimaux ;
+ * transformé (chaque bloc de 8 -> base 36), il donne accès à /xhr/video/<id> qui liste les MP4
+ * par qualité ("1080p(30fps)", …) et un flux HLS.
+ */
+object EpornerExtractor : Extractor {
+
+    override fun resolve(url: String): List<Resolved> {
+        // La page peut rediriger vers une autre adresse : l'identifiant est pris sur l'adresse finale
+        val c = Http.openOk(url)
+        val html: String
+        val finalUrl: String
+        try {
+            finalUrl = c.url.toString()
+            html = c.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            c.disconnect()
+        }
+        val id = Links.EPORNER_ID.find(URI(finalUrl).path ?: "")?.groupValues?.get(1)
+            ?: Links.EPORNER_ID.find(URI(url).path ?: "")?.groupValues?.get(1)
+            ?: err("Lien Eporner sans identifiant de vidéo")
+        val hash = Regex("""hash\s*[:=]\s*["']([\da-f]{32})""").find(html)?.groupValues?.get(1)
+            ?: err("Aucune vidéo trouvée sur la page Eporner (supprimée, ou page de vérification d'âge)")
+        val title = Regex("""<meta property="og:title" content="([^"]*)"""").find(html)?.groupValues?.get(1)?.let(Http::decodeEntities)
+            ?: Regex("""<title>(.+?) - EPORNER""").find(html)?.groupValues?.get(1)?.let(Http::decodeEntities)
+
+        val headers = mapOf("Referer" to finalUrl)
+        val json = JSONObject(
+            Http.getText(
+                "https://www.eporner.com/xhr/video/$id?hash=${calcHash(hash)}" +
+                    "&device=generic&domain=www.eporner.com&fallback=false",
+                headers,
+            )
+        )
+        if (json.has("available") && !json.optBoolean("available", true)) {
+            err("Eporner : " + json.optString("message", "vidéo indisponible"))
+        }
+        val variants = variantsFrom(json.optJSONObject("sources") ?: err("Eporner : aucune source vidéo"), headers)
+        if (variants.isEmpty()) err("Eporner : aucun format téléchargeable")
+        return listOf(Resolved(id, title, variants))
+    }
+
+    /** yt-dlp calc_hash : chaque bloc de 8 caractères hexadécimaux -> base 36 (0-9a-z), concaténés. */
+    fun calcHash(hash: String): String =
+        (0 until 32 step 8).joinToString("") { java.lang.Long.parseLong(hash.substring(it, it + 8), 16).toString(36) }
+
+    /** Formats de "sources" : MP4 par qualité (ex. "1080p(30fps)"), puis HLS en secours. */
+    internal fun variantsFrom(sources: JSONObject, headers: Map<String, String>): List<Variant> {
+        val result = ArrayList<Variant>()
+        for (kind in sources.keys()) {
+            val formats = sources.optJSONObject(kind) ?: continue
+            for (formatId in formats.keys()) {
+                val src = formats.optJSONObject(formatId)?.optString("src")?.takeIf { it.startsWith("http") } ?: continue
+                if (kind == "hls") {
+                    runCatching { result += Extractors.hlsVariants(src, headers) }
+                } else {
+                    val height = Regex("""(\d+)[pP]""").find(formatId)?.groupValues?.get(1)?.toIntOrNull()
+                    result += Variant(height, Plan.Direct(src, headers))
+                }
+            }
+        }
+        // À hauteur égale : MP4 direct avant HLS
+        return result.sortedWith(
+            compareByDescending<Variant> { it.height ?: -1 }.thenBy { if (it.plan is Plan.Direct) 0 else 1 }
+        )
     }
 }

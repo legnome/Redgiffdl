@@ -8,7 +8,8 @@ enum class Site(val label: String) {
     PORNHUB("Pornhub"),
     TWITTER("Twitter"),
     REDDIT("Reddit"),
-    YOUTUBE("YouTube");
+    YOUTUBE("YouTube"),
+    EPORNER("Eporner");
 
     companion object {
         fun fromLabel(label: String?): Site? = entries.firstOrNull { it.label == label }
