@@ -37,7 +37,7 @@ object RedgifsApi {
         data class Collection(val user: String, val id: String) : Target()
     }
 
-    data class Media(val id: String, val url: String, val isHd: Boolean) {
+    data class Media(val id: String, val url: String, val isHd: Boolean, val thumbnail: String? = null) {
         /** Nom de fichier d'origine, ex. "RedPossibleYak.mp4". */
         val fileName: String
             get() = url.substringAfterLast('/').substringBefore('?')
@@ -124,10 +124,12 @@ object RedgifsApi {
         val urls = gif.optJSONObject("urls") ?: return null
         val hd = urls.optString("hd").takeIf { it.startsWith("http") }
         val sd = urls.optString("sd").takeIf { it.startsWith("http") }
+        val thumb = urls.optString("thumbnail").takeIf { it.startsWith("http") }
+            ?: urls.optString("poster").takeIf { it.startsWith("http") }
         return when {
-            preferHd && hd != null -> Media(id, hd, true)
-            sd != null -> Media(id, sd, false)
-            hd != null -> Media(id, hd, true)
+            preferHd && hd != null -> Media(id, hd, true, thumb)
+            sd != null -> Media(id, sd, false, thumb)
+            hd != null -> Media(id, hd, true, thumb)
             else -> null
         }
     }

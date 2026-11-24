@@ -205,18 +205,15 @@ class MainActivity : Activity() {
         }
         hideKeyboard()
         requestNotificationPermissionOnce()
-        val quality = currentQuality()
-        val wasBusy = DownloadState.busy
-        links.forEach { (link, _) -> DownloadService.start(this, link, quality) }
+        // Aperçu : ce qui va être téléchargé, avec des cases à décocher
+        PreviewActivity.open(this, links.joinToString("\n") { it.first }, currentQuality())
 
-        // Champs vidés : les liens sont dans la file
+        // Champs vidés : les liens sont passés à l'aperçu
         urlInput.setText("")
         extraLinks.removeAllViews()
-
-        val parts = ArrayList<String>()
-        if (links.size > 1 || wasBusy) parts += "${links.size} lien(s) ajouté(s) à la file"
-        if (unknown.isNotEmpty()) parts += "${unknown.size} lien(s) non reconnu(s) ignoré(s)"
-        if (parts.isNotEmpty()) Toast.makeText(this, parts.joinToString(" · "), Toast.LENGTH_LONG).show()
+        if (unknown.isNotEmpty()) {
+            Toast.makeText(this, "${unknown.size} texte(s) non reconnu(s) ignoré(s)", Toast.LENGTH_LONG).show()
+        }
     }
 
     /**

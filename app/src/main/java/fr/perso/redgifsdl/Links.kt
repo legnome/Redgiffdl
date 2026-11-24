@@ -14,6 +14,13 @@ object Links {
 
     private val URL_RE = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
 
+    /** Libellé court d'un lien, affiché avant son analyse (aperçu). */
+    fun describe(t: Target): String = when (t) {
+        is Target.RedgifsSingle -> "RedGIFs"
+        is Target.RedgifsCollection -> "Collection RedGIFs"
+        is Target.Page -> if (t.site == Site.WEB) "Page " + (runCatching { URI(t.url).host }.getOrNull() ?: t.url) else t.site.label
+    }
+
     /** Toutes les URL présentes dans un texte (ponctuation finale retirée). */
     fun urlsIn(text: String): List<String> =
         URL_RE.findAll(text).map { it.value.trimEnd('.', ',', ';', ')', ']', '!', '?') }.distinct().toList()
@@ -59,6 +66,8 @@ object Links {
             isRedditHost(host) -> Site.REDDIT
             youtubeId(url) != null -> Site.YOUTUBE
             host.contains("eporner") && EPORNER_ID.containsMatchIn(path) -> Site.EPORNER
+            // Tout autre lien http(s) : recherche générique des vidéos de la page
+            uri.scheme?.lowercase() in setOf("http", "https") -> Site.WEB
             else -> return null
         }
         return Target.Page(site, url)

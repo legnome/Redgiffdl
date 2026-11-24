@@ -16,7 +16,14 @@ class Resolved(
     val availableAt: Long = 0,
     /** remarques de l'extraction (sources refusées…), affichées si le téléchargement échoue */
     val notes: List<String> = emptyList(),
+    /** miniature (aperçu avant téléchargement) */
+    val thumbnail: String? = null,
 )
+
+/** Contenu de la balise <meta property="og:image"> (miniature de la page). */
+internal fun ogImage(html: String): String? =
+    Regex("""<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']""").find(html)?.groupValues?.get(1)
+        ?.let(Http::decodeEntities)?.takeIf { it.startsWith("http") }
 
 /** [source] : origine du format (ex. appli YouTube simulée), affichée si tout échoue. */
 class Variant(val height: Int?, val plan: Plan, val source: String? = null)
@@ -52,6 +59,7 @@ object Extractors {
         Site.REDDIT -> RedditExtractor
         Site.YOUTUBE -> YoutubeExtractor
         Site.EPORNER -> EpornerExtractor
+        Site.WEB -> GenericExtractor
         Site.REDGIFS -> throw IllegalArgumentException("RedGIFs passe par RedgifsApi")
     }
 
@@ -103,7 +111,8 @@ object XvideosExtractor : Extractor {
         if (variants.isEmpty()) {
             err("Aucune vidéo trouvée sur la page (vidéo supprimée, privée, ou page de vérification d'âge)")
         }
-        return listOf(Resolved(id, title, Extractors.sorted(variants)))
+        val thumb = js(html, "setThumbUrl169") ?: js(html, "setThumbUrl") ?: ogImage(html)
+        return listOf(Resolved(id, title, Extractors.sorted(variants), thumbnail = thumb))
     }
 }
 
@@ -158,7 +167,7 @@ object PornhubExtractor : Extractor {
         val sorted = variants.sortedWith(
             compareByDescending<Variant> { it.height ?: -1 }.thenBy { if (it.plan is Plan.Direct) 0 else 1 }
         )
-        return listOf(Resolved(viewkey, title, sorted))
+        return listOf(Resolved(viewkey, title, sorted, thumbnail = ogImage(html)))
     }
 
     /** Extrait le tableau JSON "mediaDefinitions" (comptage des crochets). */
@@ -200,7 +209,7 @@ object PornhubExtractor : Extractor {
  */
 object TwitterExtractor : Extractor {
 
-    private class Vid(val variants: List<Variant>)
+    private class Vid(val variants: List<Variant>, val thumb: String?)
     private class Found(val text: String?, val user: String?, val videos: List<Vid>)
 
     override fun resolve(url: String): List<Resolved> {
@@ -213,7 +222,7 @@ object TwitterExtractor : Extractor {
 
         val title = listOfNotNull(found.user?.let { "@$it" }, found.text?.take(60)).joinToString(" ").ifBlank { null }
         return found.videos.mapIndexed { i, v ->
-            Resolved(if (found.videos.size > 1) "$id-${i + 1}" else id, title, v.variants)
+            Resolved(if (found.videos.size > 1) "$id-${i + 1}" else id, title, v.variants, thumbnail = v.thumb)
         }
     }
 
@@ -239,7 +248,8 @@ object TwitterExtractor : Extractor {
         val videos = (0 until details.length()).mapNotNull { i ->
             val m = details.optJSONObject(i) ?: return@mapNotNull null
             if (m.optString("type") !in setOf("video", "animated_gif")) return@mapNotNull null
-            mp4Variants(m.optJSONObject("video_info")?.optJSONArray("variants")).takeIf { it.isNotEmpty() }?.let(::Vid)
+            mp4Variants(m.optJSONObject("video_info")?.optJSONArray("variants")).takeIf { it.isNotEmpty() }
+                ?.let { Vid(it, m.optString("media_url_https").takeIf { u -> u.startsWith("http") }) }
         }
         return Found(json.optString("text").ifBlank { null }, json.optJSONObject("user")?.optString("screen_name"), videos)
     }
@@ -256,7 +266,7 @@ object TwitterExtractor : Extractor {
                 val h = minOf(v.optInt("width", 0), v.optInt("height", 0)).takeIf { it > 0 }
                 listOf(Variant(h, Plan.Direct(u)))
             }
-            Vid(list)
+            Vid(list, v.optString("thumbnail_url").takeIf { it.startsWith("http") })
         }
         return Found(tweet.optString("text").ifBlank { null }, tweet.optJSONObject("author")?.optString("screen_name"), videos)
     }
@@ -270,7 +280,7 @@ object TwitterExtractor : Extractor {
             val u = m.optString("url").takeIf { it.startsWith("http") } ?: return@mapNotNull null
             val size = m.optJSONObject("size")
             val h = size?.let { minOf(it.optInt("width", 0), it.optInt("height", 0)) }?.takeIf { it > 0 }
-            Vid(listOf(Variant(h, Plan.Direct(u))))
+            Vid(listOf(Variant(h, Plan.Direct(u))), m.optString("thumbnail_url").takeIf { it.startsWith("http") })
         }
         return Found(json.optString("text").ifBlank { null }, json.optString("user_screen_name").ifBlank { null }, videos)
     }
@@ -355,12 +365,15 @@ object RedditExtractor : Extractor {
 
         val id = post.optString("id")
         val title = post.optString("title").ifBlank { null }
+        val thumb = post.optJSONObject("preview")?.optJSONArray("images")?.optJSONObject(0)
+            ?.optJSONObject("source")?.optString("url")?.takeIf { it.startsWith("http") }
+            ?: post.optString("thumbnail").takeIf { it.startsWith("http") }
 
         // 1. Vidéo hébergée par Reddit
         val rv = post.optJSONObject("secure_media")?.optJSONObject("reddit_video")
             ?: post.optJSONObject("media")?.optJSONObject("reddit_video")
             ?: post.optJSONObject("preview")?.optJSONObject("reddit_video_preview")
-        if (rv != null) return listOf(Resolved(id, title, redditVideo(rv)))
+        if (rv != null) return listOf(Resolved(id, title, redditVideo(rv), thumbnail = thumb))
 
         // 2. Galerie (images / GIF animés)
         if (post.optBoolean("is_gallery")) {
@@ -377,7 +390,7 @@ object RedditExtractor : Extractor {
                         img != null -> Plan.Direct(img, ext = extOf(img, "jpg"))
                         else -> return@mapNotNull null
                     }
-                    Resolved("$id-${i + 1}", title, listOf(Variant(null, plan)))
+                    Resolved("$id-${i + 1}", title, listOf(Variant(null, plan)), thumbnail = img ?: thumb)
                 }
                 if (list.isNotEmpty()) return list
             }
@@ -386,14 +399,16 @@ object RedditExtractor : Extractor {
         // 3. Lien externe
         val link = post.optString("url_overridden_by_dest").ifBlank { post.optString("url") }
         RedgifsApi.parse(link)?.let { t ->
-            if (t is RedgifsApi.Target.Single) return listOf(Resolved(id, title, listOf(Variant(null, Plan.Redgifs(t.id)))))
+            if (t is RedgifsApi.Target.Single) {
+                return listOf(Resolved(id, title, listOf(Variant(null, Plan.Redgifs(t.id))), thumbnail = thumb))
+            }
         }
         val linkHost = runCatching { URI(link).host?.lowercase() }.getOrNull() ?: ""
         when {
             linkHost.endsWith("imgur.com") && link.endsWith(".gifv") ->
-                return listOf(Resolved(id, title, listOf(Variant(null, Plan.Direct(link.removeSuffix(".gifv") + ".mp4")))))
+                return listOf(Resolved(id, title, listOf(Variant(null, Plan.Direct(link.removeSuffix(".gifv") + ".mp4"))), thumbnail = thumb))
             linkHost == "i.redd.it" || linkHost.endsWith("imgur.com") && Regex("""\.(mp4|gif|jpe?g|png)$""").containsMatchIn(link) ->
-                return listOf(Resolved(id, title, listOf(Variant(null, Plan.Direct(link, ext = extOf(link, "jpg"))))))
+                return listOf(Resolved(id, title, listOf(Variant(null, Plan.Direct(link, ext = extOf(link, "jpg")))), thumbnail = thumb ?: link))
         }
         err("Pas de vidéo dans ce post Reddit" + (if (linkHost.isNotEmpty()) " (lien vers $linkHost)" else ""))
     }
@@ -547,7 +562,9 @@ object YoutubeExtractor : Extractor {
         }
         // Formats de toutes les applis qui ont répondu : si l'un est refusé (403) au téléchargement,
         // le suivant est essayé automatiquement (voir Downloader).
-        if (collected.isNotEmpty()) return listOf(Resolved(id, title, collected, availableAt, errors))
+        if (collected.isNotEmpty()) {
+            return listOf(Resolved(id, title, collected, availableAt, errors, thumbnail = "https://i.ytimg.com/vi/$id/hqdefault.jpg"))
+        }
         val all = errors.joinToString("\n")
         err(
             when {
@@ -786,7 +803,7 @@ object EpornerExtractor : Extractor {
         }
         val variants = variantsFrom(json.optJSONObject("sources") ?: err("Eporner : aucune source vidéo"), headers)
         if (variants.isEmpty()) err("Eporner : aucun format téléchargeable")
-        return listOf(Resolved(id, title, variants))
+        return listOf(Resolved(id, title, variants, thumbnail = ogImage(html)))
     }
 
     /** yt-dlp calc_hash : chaque bloc de 8 caractères hexadécimaux -> base 36 (0-9a-z), concaténés. */

@@ -22,8 +22,8 @@ android {
         applicationId = "fr.perso.redgifsdl"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "4.5"
+        versionCode = 18
+        versionName = "5.0"
 
         // ONNX Runtime embarque du code natif : uniquement les téléphones ARM 64 bits (tous les récents),
         // pour ne pas alourdir l'APK de 3 autres architectures.
@@ -50,8 +50,11 @@ android {
     }
 }
 
-// Une seule dépendance externe : ONNX Runtime, pour exécuter le modèle de détection NudeNet
-// (bouton Censure, portage de github.com/legnome/legnome). Tout le reste = API Android du framework.
+// Deux dépendances externes : ONNX Runtime, pour le modèle de détection NudeNet (bouton Censure,
+// portage de github.com/legnome/legnome), et jsoup, pour lire le HTML des pages (recherche générique
+// de vidéos). Tout le reste = API Android du framework.
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.32.0")
+    // Lecture du HTML par sélecteurs CSS (recherche de vidéos sur n'importe quelle page)
+    implementation("org.jsoup:jsoup:1.24.1")
 }

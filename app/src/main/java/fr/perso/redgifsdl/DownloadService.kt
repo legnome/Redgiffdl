@@ -62,6 +62,8 @@ class DownloadService : Service() {
         }
         val target = intent?.getStringExtra(EXTRA_TEXT)?.let(Links::parse)
         val quality = Quality.fromName(intent?.getStringExtra(EXTRA_QUALITY))
+        // Sélection faite dans l'aperçu (null = tout)
+        val only = intent?.getStringArrayListExtra(EXTRA_ONLY)?.map { it.lowercase() }?.toSet()
         if (target == null) {
             stopIfIdle()
             return START_NOT_STICKY
@@ -71,7 +73,7 @@ class DownloadService : Service() {
             is Links.Target.RedgifsSingle -> "RedGIFs ${target.id}"
             is Links.Target.Page -> target.site.label
         }
-        enqueue(label, "Connexion…") { listener -> Downloader(this, listener, quality).run(target) }
+        enqueue(label, "Connexion…") { listener -> Downloader(this, listener, quality).run(target, only) }
         return START_NOT_STICKY
     }
 
@@ -262,6 +264,7 @@ class DownloadService : Service() {
     companion object {
         const val EXTRA_TEXT = "text"
         const val EXTRA_PATH = "path"
+        const val EXTRA_ONLY = "only"
         const val ACTION_CENSOR = "fr.perso.redgifsdl.CENSOR"
         const val EXTRA_QUALITY = "quality"
         private const val CHANNEL_PROGRESS = "progress"
@@ -276,11 +279,13 @@ class DownloadService : Service() {
             )
         }
 
-        fun start(context: Context, text: String, quality: Quality = Quality.MAX) {
+        /** @param only identifiants choisis dans l'aperçu (null = tout télécharger) */
+        fun start(context: Context, text: String, quality: Quality = Quality.MAX, only: Collection<String>? = null) {
             context.startForegroundService(
                 Intent(context, DownloadService::class.java)
                     .putExtra(EXTRA_TEXT, text)
                     .putExtra(EXTRA_QUALITY, quality.name)
+                    .apply { if (only != null) putStringArrayListExtra(EXTRA_ONLY, ArrayList(only)) }
             )
         }
     }

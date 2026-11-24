@@ -9,7 +9,9 @@ enum class Site(val label: String) {
     TWITTER("Twitter"),
     REDDIT("Reddit"),
     YOUTUBE("YouTube"),
-    EPORNER("Eporner");
+    EPORNER("Eporner"),
+    /** n'importe quelle autre page web (extracteur générique) */
+    WEB("Web");
 
     companion object {
         fun fromLabel(label: String?): Site? = entries.firstOrNull { it.label == label }

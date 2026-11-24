@@ -3,6 +3,10 @@
     <string name="app_name">redDL</string>
     <string name="hint_url">Colle un lien</string>
     <string name="download">Télécharger</string>
+    <string name="download_n">Télécharger (%1$d)</string>
+    <string name="preview_title">Aperçu</string>
+    <string name="check_all">Tout cocher</string>
+    <string name="uncheck_all">Tout décocher</string>
     <string name="quality_button">Qualité : %1$s ▾</string>
     <string name="quality_title">Qualité maximale</string>
     <string name="download_queue">Ajouter à la file d\'attente</string>

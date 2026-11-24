@@ -26,10 +26,70 @@ class Downloader(
     // RedGIFs n'a que 2 qualités : HD (souvent 1080p) et SD (≈ 480p)
     private val api = RedgifsApi.Session(preferHd = quality.maxHeight > 480)
 
-    fun run(target: Links.Target): Outcome = when (target) {
+    /** @param only identifiants (minuscules) à télécharger, choisis dans l'aperçu ; null = tout. */
+    fun run(target: Links.Target, only: Set<String>? = null): Outcome = when (target) {
         is Links.Target.RedgifsSingle -> downloadRedgifsSingle(target.id)
-        is Links.Target.RedgifsCollection -> downloadCollection(target.user, target.id)
-        is Links.Target.Page -> downloadPage(target.site, target.url)
+        is Links.Target.RedgifsCollection -> downloadCollection(target.user, target.id, only)
+        is Links.Target.Page -> downloadPage(target.site, target.url, only)
+    }
+
+    // ------------------------------------------------------------ Aperçu (avant téléchargement)
+
+    class PreviewItem(
+        val id: String,
+        val title: String,
+        val thumbnail: String?,
+        /** qualité qui sera téléchargée, ex. "1080p" (null = inconnue) */
+        val quality: String?,
+        /** déjà dans la bibliothèque (ou exclu d'une collection) : sera ignoré */
+        val skipped: String?,
+    )
+
+    class Preview(val label: String, val items: List<PreviewItem>)
+
+    /** Ce que le lien va télécharger, sans rien télécharger (réseau seulement). */
+    fun preview(target: Links.Target): Preview = when (target) {
+        is Links.Target.RedgifsSingle -> {
+            val m = api.gif(target.id)
+            val already = target.id in Library.existingKeys(context, Site.REDGIFS, "")
+            Preview(
+                "RedGIFs",
+                listOf(PreviewItem(m.id.lowercase(), m.fileName, m.thumbnail, quality(m), if (already) "déjà téléchargée" else null)),
+            )
+        }
+        is Links.Target.RedgifsCollection -> {
+            val info = api.collectionInfo(target.user, target.id)
+            val saved = CollectionStore.get(context, target.user, target.id)
+            val folder = saved?.folder ?: Library.folderFor(info.name)
+            val existing = Library.existingKeys(context, Site.REDGIFS, folder)
+            val excluded = saved?.excluded ?: emptySet()
+            val items = api.collectionItems(target.user, target.id).map { m ->
+                val key = m.id.lowercase()
+                PreviewItem(
+                    key, m.fileName, m.thumbnail, quality(m),
+                    when (key) {
+                        in existing -> "déjà téléchargée"
+                        in excluded -> "exclue (supprimée par toi)"
+                        else -> null
+                    },
+                )
+            }
+            Preview("Collection « ${info.name} »", items)
+        }
+        is Links.Target.Page -> {
+            val items = RedgifsApi.retrying { Extractors.forSite(target.site).resolve(target.url) }
+            val existing = Library.existingKeys(context, target.site, "")
+            Preview(
+                Links.describe(target),
+                items.map { r ->
+                    val h = runCatching { Extractors.pick(r.variants, quality).height }.getOrNull()
+                    PreviewItem(
+                        r.id.lowercase(), r.title ?: r.id, r.thumbnail, h?.let { "${it}p" },
+                        if (r.id.lowercase() in existing) "déjà téléchargée" else null,
+                    )
+                },
+            )
+        }
     }
 
     // ------------------------------------------------------------ RedGIFs
@@ -54,7 +114,7 @@ class Downloader(
         )
     }
 
-    private fun downloadCollection(user: String, collectionId: String): Outcome {
+    private fun downloadCollection(user: String, collectionId: String, only: Set<String>?): Outcome {
         listener.onStatus("Lecture de la collection…")
         listener.onProgress(null)
         val info = api.collectionInfo(user, collectionId)
@@ -80,7 +140,9 @@ class Downloader(
         val excluded = saved?.excluded ?: emptySet()
         val already = items.filter { it.id.lowercase() in existing }
         val skipped = items.filter { it.id.lowercase() !in existing && it.id.lowercase() in excluded }
-        val todo = items.filter { it.id.lowercase() !in existing && it.id.lowercase() !in excluded }
+        val todo = items.filter {
+            it.id.lowercase() !in existing && it.id.lowercase() !in excluded && (only == null || it.id.lowercase() in only)
+        }
 
         val header = "Collection « ${info.name} » : ${items.size} vidéo(s), " +
             "${already.size} déjà téléchargée(s)" +
@@ -141,14 +203,14 @@ class Downloader(
 
     // ------------------------------------------------------------ Autres sites
 
-    private fun downloadPage(site: Site, url: String): Outcome {
+    private fun downloadPage(site: Site, url: String, only: Set<String>?): Outcome {
         listener.onStatus("Analyse de la page ${site.label}…")
         listener.onProgress(null)
         val items = RedgifsApi.retrying { Extractors.forSite(site).resolve(url) }
 
         val existing = Library.existingKeys(context, site, "")
         val already = items.filter { it.id.lowercase() in existing }
-        val todo = items.filter { it.id.lowercase() !in existing }
+        val todo = items.filter { it.id.lowercase() !in existing && (only == null || it.id.lowercase() in only) }
         if (todo.isEmpty()) {
             return Outcome("Déjà dans la bibliothèque (${site.label}) : rien à faire.", true, "${site.label} : déjà là")
         }
