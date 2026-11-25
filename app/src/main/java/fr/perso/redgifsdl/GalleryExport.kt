@@ -18,7 +18,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 /**
- * Actions sur un fichier de la bibliothèque : supprimer, ou déplacer dans la galerie
+ * Actions sur un fichier de la bibliothèque : supprimer, ou copier dans la galerie
  * (Films/redDL[/collection] pour les vidéos, Images/redDL[/collection] pour les images),
  * ce qui le rend visible dans la Galerie et le retire de la bibliothèque privée.
  */
@@ -44,16 +44,16 @@ object GalleryExport {
             .show()
     }
 
-    /** Demande confirmation puis déplace vers la galerie (en arrière-plan). */
-    fun confirmMove(activity: Activity, file: File, onDone: () -> Unit) {
+    /** Demande confirmation puis copie dans la galerie (en arrière-plan). L'original reste dans l'appli. */
+    fun confirmCopy(activity: Activity, file: File) {
         val dest = destination(activity, file)
         AlertDialog.Builder(activity)
             .setMessage(
-                "Déplacer ${file.name} dans la galerie ?\n\n" +
-                    "Il sera enregistré dans $dest (visible dans la Galerie et par les autres applis) " +
-                    "et retiré de la bibliothèque privée."
+                "Copier ${file.name} dans la galerie ?\n\n" +
+                    "Une copie sera enregistrée dans $dest (visible dans la Galerie et par les autres applis). " +
+                    "La vidéo reste aussi dans la bibliothèque de l'appli."
             )
-            .setPositiveButton("Déplacer") { _, _ -> withStoragePermission(activity) { move(activity, file, onDone) } }
+            .setPositiveButton("Copier") { _, _ -> withStoragePermission(activity) { copy(activity, file) } }
             .setNegativeButton("Annuler", null)
             .show()
     }
@@ -79,9 +79,9 @@ object GalleryExport {
     fun showMenu(activity: Activity, file: File, onDone: () -> Unit) {
         AlertDialog.Builder(activity)
             .setTitle(file.name)
-            .setItems(arrayOf("Déplacer dans la galerie", "Censurer (copie)", "Supprimer")) { _, which ->
+            .setItems(arrayOf("Copier dans la galerie", "Censurer (copie)", "Supprimer")) { _, which ->
                 when (which) {
-                    0 -> confirmMove(activity, file, onDone)
+                    0 -> confirmCopy(activity, file)
                     1 -> confirmCensor(activity, file)
                     else -> confirmDelete(activity, file, onDone)
                 }
@@ -112,18 +112,16 @@ object GalleryExport {
         }
     }
 
-    private fun move(activity: Activity, file: File, onDone: () -> Unit) {
+    private fun copy(activity: Activity, file: File) {
         val app = activity.applicationContext
-        Toast.makeText(activity, "Déplacement…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(activity, "Copie dans la galerie…", Toast.LENGTH_SHORT).show()
         Thread {
             val result = runCatching { copyToGallery(app, file) }
             main.post {
                 result.onSuccess { path ->
-                    Library.removeByUser(app, file)
-                    Toast.makeText(app, "Déplacé dans la galerie : $path", Toast.LENGTH_LONG).show()
-                    if (!activity.isDestroyed) onDone()
+                    Toast.makeText(app, "Copié dans la galerie : $path", Toast.LENGTH_LONG).show()
                 }.onFailure { e ->
-                    Toast.makeText(app, "Échec du déplacement : ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, "Échec de la copie : ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }.start()

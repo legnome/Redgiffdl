@@ -135,7 +135,7 @@ class Downloader(
         }
 
         // Vérification AVANT téléchargement : ce qui est déjà dans le dossier est ignoré,
-        // ainsi que les vidéos que tu as supprimées ou déplacées dans la galerie.
+        // ainsi que les vidéos que tu as supprimées.
         val existing = Library.existingKeys(context, Site.REDGIFS, folder)
         val excluded = saved?.excluded ?: emptySet()
         val already = items.filter { it.id.lowercase() in existing }
@@ -177,7 +177,7 @@ class Downloader(
         if (sdCount > 0) sb.append(" (dont ").append(sdCount).append(" en SD)")
         sb.append("\n• ").append(already.size).append(" déjà présente(s), ignorée(s)")
         if (skipped.isNotEmpty()) {
-            sb.append("\n• ").append(skipped.size).append(" exclue(s) (supprimées ou déplacées par toi)")
+            sb.append("\n• ").append(skipped.size).append(" exclue(s) (supprimées par toi)")
         }
         appendFailures(sb, failed)
         sb.append("\n\nBibliothèque › RedGIFs › ").append(Library.label(folder))

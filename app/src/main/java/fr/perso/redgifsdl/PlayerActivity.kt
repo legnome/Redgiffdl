@@ -63,7 +63,7 @@ class PlayerActivity : Activity() {
             current()?.let { GalleryExport.confirmCensor(this, it) }
         }
         findViewById<View>(R.id.moveButton).setOnClickListener {
-            current()?.let { GalleryExport.confirmMove(this, it) { removeCurrent() } }
+            current()?.let { GalleryExport.confirmCopy(this, it) } // la vidéo reste affichée
         }
         val site = Site.fromLabel(intent.getStringExtra(LibraryActivity.EXTRA_SITE)) ?: Site.REDGIFS
         val folder = intent.getStringExtra(LibraryActivity.EXTRA_FOLDER) ?: ""
@@ -189,7 +189,7 @@ class PlayerActivity : Activity() {
 
     private fun current(): File? = files.getOrNull(index)
 
-    /** Le fichier affiché a été supprimé ou déplacé : on passe au suivant (ou on quitte si c'était le dernier). */
+    /** Le fichier affiché a été supprimé : on passe au suivant (ou on quitte si c'était le dernier). */
     private fun removeCurrent() {
         val gone = current() ?: return
         files = files.filter { it != gone }

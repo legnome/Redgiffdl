@@ -7,7 +7,7 @@ import java.io.File
 
 /**
  * Collections enregistrées (fichier privé collections.json) : lien, nom, dossier de la bibliothèque,
- * et vidéos exclues (supprimées ou déplacées dans la galerie par l'utilisateur, à ne pas retélécharger).
+ * et vidéos exclues (supprimées par l'utilisateur, à ne pas retélécharger).
  */
 object CollectionStore {
 
@@ -86,7 +86,7 @@ object CollectionStore {
         store(context, map)
     }
 
-    /** L'utilisateur a supprimé / déplacé une vidéo d'un dossier de collection : ne plus la retélécharger. */
+    /** L'utilisateur a supprimé une vidéo d'un dossier de collection : ne plus la retélécharger. */
     fun exclude(context: Context, folder: String, videoKey: String) = synchronized(lock) {
         val map = load(context)
         val s = map.values.firstOrNull { it.folder == folder } ?: return@synchronized

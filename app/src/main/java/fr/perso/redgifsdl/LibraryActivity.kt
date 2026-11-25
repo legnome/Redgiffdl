@@ -22,7 +22,7 @@ import java.io.File
  * - sans extra : liste des sites (RedGIFs, XVideos, …)
  * - EXTRA_SITE = RedGIFs sans dossier : "Vidéos seules" + une entrée par collection (bouton Mettre à jour)
  * - EXTRA_SITE (+ EXTRA_FOLDER) : grille de miniatures
- * Appui long = menu (supprimer, déplacer dans la galerie, mettre à jour une collection).
+ * Appui long = menu (copier dans la galerie, censurer, supprimer, mettre à jour une collection).
  */
 class LibraryActivity : Activity() {
 

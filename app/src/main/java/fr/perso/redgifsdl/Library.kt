@@ -222,7 +222,7 @@ object Library {
     }
 
     /**
-     * Suppression / déplacement demandé par l'utilisateur : si le fichier vient d'une collection RedGIFs,
+     * Suppression demandée par l'utilisateur : si le fichier vient d'une collection RedGIFs,
      * il est noté comme exclu pour que la mise à jour ne le retélécharge pas.
      */
     fun removeByUser(context: Context, file: File) {
