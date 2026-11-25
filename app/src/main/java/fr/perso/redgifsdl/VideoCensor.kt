@@ -330,7 +330,7 @@ class VideoCensor(private val detector: NudeDetector) {
         private val program: Int
         private val surfaceTexture: SurfaceTexture
         val decoderSurface: Surface
-        private val callbacks = HandlerThread("redDL-gl").apply { start() }
+        private val callbacks = HandlerThread("anyDL-gl").apply { start() }
         private val lock = Object()
         private var frameAvailable = false
         private val stMatrix = FloatArray(16)

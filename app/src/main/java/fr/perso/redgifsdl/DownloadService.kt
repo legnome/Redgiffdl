@@ -175,7 +175,7 @@ class DownloadService : Service() {
 
     private fun acquireLocks() {
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "redDL:download")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "anyDL:download")
             .apply {
                 setReferenceCounted(false)
                 acquire(3 * 60 * 60 * 1000L) // sécurité : relâché automatiquement au bout de 3 h
@@ -188,7 +188,7 @@ class DownloadService : Service() {
             } else {
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF
             }
-            wifi.createWifiLock(mode, "redDL:download").apply {
+            wifi.createWifiLock(mode, "anyDL:download").apply {
                 setReferenceCounted(false)
                 acquire()
             }

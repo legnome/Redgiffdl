@@ -55,7 +55,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Menu Partager > "Télécharger (redDL)" : téléchargement en arrière-plan sans ouvrir l'appli.
+        <!-- Menu Partager > "Télécharger (anyDL)" : téléchargement en arrière-plan sans ouvrir l'appli.
              Désactivable depuis l'écran principal (PackageManager.setComponentEnabledSetting). -->
         <activity
             android:name=".ShareDownloadActivity"

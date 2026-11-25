@@ -54,7 +54,7 @@ class MainActivity : Activity() {
         qualityButton.setOnClickListener { chooseQuality() }
         findViewById<Button>(R.id.addLinkButton).setOnClickListener { addLinkRow() }
 
-        // Réglage : cible "Télécharger (redDL)" dans le menu Partager (activée par défaut)
+        // Réglage : cible "Télécharger (anyDL)" dans le menu Partager (activée par défaut)
         val shareSwitch = findViewById<Switch>(R.id.shareDirectSwitch)
         shareSwitch.isChecked = ShareDownloadActivity.isEnabled(this)
         shareSwitch.setOnCheckedChangeListener { _, checked -> ShareDownloadActivity.setEnabled(this, checked) }
@@ -65,6 +65,17 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.pasteButton).setOnClickListener { pasteFromClipboard() }
         findViewById<Button>(R.id.libraryButton).setOnClickListener {
             startActivity(Intent(this, LibraryActivity::class.java))
+        }
+        // Raccourcis vers les applis vidéo : pages intégrées à venir
+        mapOf(
+            R.id.appYoutube to "YouTube",
+            R.id.appTiktok to "TikTok",
+            R.id.appTwitter to "X / Twitter",
+            R.id.appReddit to "Reddit",
+        ).forEach { (id, name) ->
+            findViewById<View>(id).setOnClickListener {
+                Toast.makeText(this, "$name : bientôt disponible", Toast.LENGTH_SHORT).show()
+            }
         }
         urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {

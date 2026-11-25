@@ -19,12 +19,12 @@ import java.io.IOException
 
 /**
  * Actions sur un fichier de la bibliothèque : supprimer, ou copier dans la galerie
- * (Films/redDL[/collection] pour les vidéos, Images/redDL[/collection] pour les images),
+ * (Films/anyDL[/collection] pour les vidéos, Images/anyDL[/collection] pour les images),
  * ce qui le rend visible dans la Galerie et le retire de la bibliothèque privée.
  */
 object GalleryExport {
 
-    private const val ALBUM = "redDL"
+    private const val ALBUM = "anyDL"
     private const val REQ_STORAGE = 4242
     private val main = Handler(Looper.getMainLooper())
 
@@ -130,7 +130,7 @@ object GalleryExport {
     private fun baseDir(file: File) =
         if (Library.isImage(file)) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_MOVIES
 
-    /** Films/redDL/<Site>[/<collection>] (Images/… pour les images). */
+    /** Films/anyDL/<Site>[/<collection>] (Images/… pour les images). */
     private fun relativeDir(context: Context, file: File): String {
         val (site, folder) = Library.locate(context, file) ?: (null to "")
         return listOfNotNull(baseDir(file), ALBUM, site?.label, folder.ifEmpty { null }).joinToString("/")

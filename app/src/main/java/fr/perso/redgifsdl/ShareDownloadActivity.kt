@@ -11,11 +11,11 @@ import android.os.Bundle
 import android.widget.Toast
 
 /**
- * Cible "Télécharger (redDL)" du menu Partager : lance le téléchargement en arrière-plan
+ * Cible "Télécharger (anyDL)" du menu Partager : lance le téléchargement en arrière-plan
  * (DownloadService) sans ouvrir l'appli. Activité transparente, sans interface, fermée aussitôt :
  * on reste dans l'appli d'origine.
  *
- * La cible "redDL" classique (MainActivity) reste disponible pour ouvrir l'appli.
+ * La cible "anyDL" classique (MainActivity) reste disponible pour ouvrir l'appli.
  */
 class ShareDownloadActivity : Activity() {
 
@@ -31,7 +31,7 @@ class ShareDownloadActivity : Activity() {
         val unknown = ArrayList<String>()
         val links = if (text.isNullOrBlank()) emptyList() else Links.parseAll(text, unknown)
         if (links.isEmpty()) {
-            Toast.makeText(app, "redDL : lien non pris en charge", Toast.LENGTH_SHORT).show()
+            Toast.makeText(app, "anyDL : lien non pris en charge", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -52,13 +52,13 @@ class ShareDownloadActivity : Activity() {
         }
 
         val n = links.size
-        val sb = StringBuilder("redDL : téléchargement lancé ($n ${if (n > 1) "liens" else "lien"})")
+        val sb = StringBuilder("anyDL : téléchargement lancé ($n ${if (n > 1) "liens" else "lien"})")
         if (unknown.isNotEmpty()) sb.append(" · ${unknown.size} ignoré(s)")
         // Android 13+ : on ne demande pas la permission ici (pas d'interface), on le signale seulement
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            sb.append("\nOuvre redDL une fois pour activer les notifications")
+            sb.append("\nOuvre anyDL une fois pour activer les notifications")
         }
         Toast.makeText(app, sb.toString(), Toast.LENGTH_LONG).show()
     }
@@ -85,7 +85,7 @@ class ShareDownloadActivity : Activity() {
     companion object {
         private fun component(context: Context) = ComponentName(context, ShareDownloadActivity::class.java)
 
-        /** Cible "Télécharger (redDL)" visible dans le menu Partager ? (activée par défaut) */
+        /** Cible "Télécharger (anyDL)" visible dans le menu Partager ? (activée par défaut) */
         fun isEnabled(context: Context): Boolean =
             context.packageManager.getComponentEnabledSetting(component(context)) !=
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED
