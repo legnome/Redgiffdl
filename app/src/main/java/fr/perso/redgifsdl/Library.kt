@@ -132,6 +132,10 @@ object Library {
         if (all.isEmpty()) null else SiteEntry(site, all.size, all.first())
     }
 
+    /** Taille totale (octets) des fichiers de la bibliothèque, tous sites confondus. */
+    fun totalSize(context: Context): Long =
+        root(context).walkTopDown().filter(::isMedia).sumOf { it.length() }
+
     /** Tous les fichiers d'un dossier et de ses sous-dossiers, du plus récent au plus ancien. */
     fun allMedia(dir: File): List<File> =
         dir.walkTopDown().filter(::isMedia).sortedByDescending { it.lastModified() }.toList()

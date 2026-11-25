@@ -35,6 +35,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var extraLinks: LinearLayout
     private lateinit var qualityButton: Button
+    private lateinit var librarySize: TextView
+    private var wasBusy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +49,7 @@ class MainActivity : Activity() {
         status = findViewById(R.id.status)
         extraLinks = findViewById(R.id.extraLinks)
         qualityButton = findViewById(R.id.qualityButton)
+        librarySize = findViewById(R.id.librarySize)
         updateQualityButton()
         qualityButton.setOnClickListener { chooseQuality() }
         findViewById<Button>(R.id.addLinkButton).setOnClickListener { addLinkRow() }
@@ -87,6 +90,18 @@ class MainActivity : Activity() {
         super.onResume()
         DownloadState.observer = { render() }
         render()
+        refreshLibrarySize()
+    }
+
+    /** Taille des fichiers enregistrés, affichée à droite de "Ma bibliothèque" (ex. "4,2 Go"). */
+    private fun refreshLibrarySize() {
+        val app = applicationContext
+        sizeExecutor.execute {
+            val bytes = runCatching { Library.totalSize(app) }.getOrNull() ?: return@execute
+            runOnUiThread {
+                if (!isDestroyed) librarySize.text = android.text.format.Formatter.formatShortFileSize(this, bytes)
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -232,6 +247,9 @@ class MainActivity : Activity() {
     /** Affiche l'état courant (appelé à chaque changement). */
     private fun render() {
         val s = DownloadState
+        // Fin d'un téléchargement / d'une censure : la bibliothèque a changé de taille
+        if (wasBusy && !s.busy) refreshLibrarySize()
+        wasBusy = s.busy
         downloadButton.text = getString(if (s.busy) R.string.download_queue else R.string.download)
         progress.visibility = if (s.busy) View.VISIBLE else View.INVISIBLE
         val f = s.fraction
@@ -253,5 +271,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_NOTIF = 7
         private val migrationExecutor = Executors.newSingleThreadExecutor()
+        private val sizeExecutor = Executors.newSingleThreadExecutor()
     }
 }

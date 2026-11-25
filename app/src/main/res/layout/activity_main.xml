@@ -77,13 +77,32 @@
                 android:text="@string/download" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/libraryButton"
-            style="?android:attr/buttonBarButtonStyle"
+        <!-- Bibliothèque + taille totale des fichiers enregistrés -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/library_button" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/libraryButton"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/library_button" />
+
+            <TextView
+                android:id="@+id/librarySize"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="64dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:gravity="end"
+                android:textAppearance="?android:attr/textAppearanceMedium" />
+        </LinearLayout>
 
         <!-- Affiche/masque la cible "Télécharger (redDL)" du menu Partager -->
         <Switch
